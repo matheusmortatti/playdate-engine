@@ -1,0 +1,137 @@
+# Build artifacts
+*.o
+*.obj
+*.elf
+*.gch
+*.pch
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+test_runner
+test_pool
+test_perf
+test_debug
+*.exe
+*.out
+*.app
+
+# Playdate-specific
+*.pdx
+*.pdx.*
+Playdate Simulator.app
+.DS_Store
+# Playdate builds
+build/
+builds/
+dist/
+device/
+simulator/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.ilk
+*.map
+*.exp
+
+# Profiling
+gmon.out
+*.gcda
+*.gcno
+*.gcov
+callgrind.out.*
+perf.data
+perf.data.old
+
+# IDE files
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.project
+.cproject
+.settings/
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.directory
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+core
+core.*
+vgcore.*
+*.stackdump
+
+# Asset pipeline
+assets/converted/
+assets/optimized/
+assets/cache/
+*.cache
+
+# Lua compiled bytecode (if using Lua bindings)
+*.luac
+
+# Documentation builds
+docs/_build/
+docs/html/
+docs/latex/
+
+# Test results
+test_results/
+coverage/
+*.xml
+*.json
+
+# Packaging
+*.tar.gz
+*.zip
+*.7z
+*.dmg
+*.pkg
+*.deb
+*.rpm
+
+# Local environment
+.env
+.env.local
+local.properties
+
+# Claude Code settings (keep main settings, ignore local)
+.claude/settings.local.json
