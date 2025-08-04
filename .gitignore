@@ -13,7 +13,7 @@
 *.so.*
 *.dylib
 
-# Executables
+# Executables (but not source directories)
 test_runner
 test_pool
 test_perf
@@ -22,11 +22,15 @@ test_debug
 *.out
 *.app
 
+# Explicitly preserve source and test directories
+!src/
+!tests/
+!include/
+
 # Playdate-specific
 *.pdx
 *.pdx.*
 Playdate Simulator.app
-.DS_Store
 # Playdate builds
 build/
 builds/
@@ -38,8 +42,7 @@ simulator/
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
-Testing/
-Makefile
+build/Makefile
 cmake_install.cmake
 install_manifest.txt
 compile_commands.json
@@ -94,8 +97,8 @@ Thumbs.db
 *.log
 *.bak
 *.backup
-core
-core.*
+core.dump
+core.[0-9]*
 vgcore.*
 *.stackdump
 
@@ -113,11 +116,13 @@ docs/_build/
 docs/html/
 docs/latex/
 
-# Test results
+# Test results and coverage (specific patterns)
 test_results/
 coverage/
-*.xml
-*.json
+*_test_results.xml
+*_coverage.xml
+coverage.json
+test-results.json
 
 # Packaging
 *.tar.gz
