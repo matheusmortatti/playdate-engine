@@ -65,6 +65,8 @@ examples/lua/
 
 ### Step 1: Core Lua Engine Integration
 
+#### Core Header and Definitions
+
 ```c
 // lua_engine.h
 #ifndef LUA_ENGINE_H
@@ -81,7 +83,11 @@ examples/lua/
 #define LUA_ENGINE_VERSION "1.0.0"
 #define MAX_LUA_STACK_SIZE 1000
 #define MAX_ERROR_MESSAGE_SIZE 512
+```
 
+#### Lua Engine Structure
+
+```c
 // Lua engine state
 typedef struct LuaEngine {
     lua_State* L;                    // Main Lua state
@@ -106,6 +112,749 @@ typedef struct LuaEngine {
     bool enableGCMetrics;
     
 } LuaEngine;
+```
 
+#### Engine Management Functions
+
+```c
 // Engine management
-LuaEngine* lua_engine_create(PlaydateAPI* pd);\nvoid lua_engine_destroy(LuaEngine* engine);\nbool lua_engine_initialize(LuaEngine* engine);\n\n// Script execution\nbool lua_engine_load_file(LuaEngine* engine, const char* filename);\nbool lua_engine_load_string(LuaEngine* engine, const char* script);\nbool lua_engine_call_function(LuaEngine* engine, const char* functionName, int numArgs, int numResults);\n\n// Error handling\nconst char* lua_engine_get_last_error(LuaEngine* engine);\nvoid lua_engine_clear_error(LuaEngine* engine);\nbool lua_engine_has_error(LuaEngine* engine);\n\n// Memory management\nvoid lua_engine_collect_garbage(LuaEngine* engine);\nsize_t lua_engine_get_memory_usage(LuaEngine* engine);\nvoid lua_engine_set_memory_limit(LuaEngine* engine, size_t maxMemory);\n\n// Binding registration\nvoid lua_engine_register_all_bindings(LuaEngine* engine);\nvoid lua_engine_register_gameobject_bindings(LuaEngine* engine);\nvoid lua_engine_register_component_bindings(LuaEngine* engine);\nvoid lua_engine_register_scene_bindings(LuaEngine* engine);\nvoid lua_engine_register_math_bindings(LuaEngine* engine);\n\n// Utility functions\nvoid lua_engine_push_gameobject(LuaEngine* engine, GameObject* gameObject);\nGameObject* lua_engine_check_gameobject(LuaEngine* engine, int index);\nvoid lua_engine_push_component(LuaEngine* engine, Component* component);\nComponent* lua_engine_check_component(LuaEngine* engine, int index, ComponentType type);\n\n// Performance and debugging\nvoid lua_engine_print_stats(LuaEngine* engine);\nvoid lua_engine_reset_stats(LuaEngine* engine);\nvoid lua_engine_enable_debug_hooks(LuaEngine* engine, bool enabled);\n\n// Global engine access\nLuaEngine* lua_engine_get_global(void);\nvoid lua_engine_set_global(LuaEngine* engine);\n\n#endif // LUA_ENGINE_H\n```\n\n### Step 2: GameObject Lua Bindings\n\n```c\n// lua_gameobject.c\n#include \"lua_gameobject.h\"\n#include \"lua_engine.h\"\n#include \"game_object.h\"\n#include \"transform_component.h\"\n\n#define GAMEOBJECT_METATABLE \"PlaydateEngine.GameObject\"\n\n// GameObject userdata wrapper\ntypedef struct LuaGameObject {\n    GameObject* gameObject;\n    Scene* scene;                // For validation\n    bool isValid;               // Prevents use after destruction\n} LuaGameObject;\n\n// GameObject creation\nstatic int lua_gameobject_new(lua_State* L) {\n    LuaEngine* engine = lua_engine_get_global();\n    \n    // Get scene (optional parameter)\n    Scene* scene = engine->activeScene;\n    if (lua_gettop(L) > 0 && !lua_isnil(L, 1)) {\n        // TODO: Check if user provided a scene\n    }\n    \n    // Create GameObject\n    GameObject* gameObject = game_object_create(scene);\n    if (!gameObject) {\n        return luaL_error(L, \"Failed to create GameObject\");\n    }\n    \n    // Create Lua wrapper\n    LuaGameObject* luaObj = (LuaGameObject*)lua_newuserdata(L, sizeof(LuaGameObject));\n    luaObj->gameObject = gameObject;\n    luaObj->scene = scene;\n    luaObj->isValid = true;\n    \n    // Set metatable\n    luaL_getmetatable(L, GAMEOBJECT_METATABLE);\n    lua_setmetatable(L, -2);\n    \n    return 1;\n}\n\n// GameObject destruction\nstatic int lua_gameobject_destroy(lua_State* L) {\n    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);\n    \n    if (luaObj->isValid && luaObj->gameObject) {\n        game_object_destroy(luaObj->gameObject);\n        luaObj->gameObject = NULL;\n        luaObj->isValid = false;\n    }\n    \n    return 0;\n}\n\n// GameObject position\nstatic int lua_gameobject_set_position(lua_State* L) {\n    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);\n    float x = (float)luaL_checknumber(L, 2);\n    float y = (float)luaL_checknumber(L, 3);\n    \n    if (!luaObj->isValid) {\n        return luaL_error(L, \"Attempt to use destroyed GameObject\");\n    }\n    \n    game_object_set_position(luaObj->gameObject, x, y);\n    return 0;\n}\n\nstatic int lua_gameobject_get_position(lua_State* L) {\n    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);\n    \n    if (!luaObj->isValid) {\n        return luaL_error(L, \"Attempt to use destroyed GameObject\");\n    }\n    \n    float x, y;\n    game_object_get_position(luaObj->gameObject, &x, &y);\n    \n    lua_pushnumber(L, x);\n    lua_pushnumber(L, y);\n    return 2;\n}\n\n// Component management\nstatic int lua_gameobject_add_component(lua_State* L) {\n    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);\n    const char* componentType = luaL_checkstring(L, 2);\n    \n    if (!luaObj->isValid) {\n        return luaL_error(L, \"Attempt to use destroyed GameObject\");\n    }\n    \n    ComponentType type = COMPONENT_TYPE_NONE;\n    if (strcmp(componentType, \"Sprite\") == 0) {\n        type = COMPONENT_TYPE_SPRITE;\n    } else if (strcmp(componentType, \"Collision\") == 0) {\n        type = COMPONENT_TYPE_COLLISION;\n    } else {\n        return luaL_error(L, \"Unknown component type: %s\", componentType);\n    }\n    \n    Component* component = component_registry_create(type, luaObj->gameObject);\n    if (!component) {\n        return luaL_error(L, \"Failed to create component: %s\", componentType);\n    }\n    \n    GameObjectResult result = game_object_add_component(luaObj->gameObject, component);\n    if (result != GAMEOBJECT_OK) {\n        component_registry_destroy(component);\n        return luaL_error(L, \"Failed to add component to GameObject\");\n    }\n    \n    // Push component as Lua object\n    lua_engine_push_component(lua_engine_get_global(), component);\n    return 1;\n}\n\nstatic int lua_gameobject_get_component(lua_State* L) {\n    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);\n    const char* componentType = luaL_checkstring(L, 2);\n    \n    if (!luaObj->isValid) {\n        return luaL_error(L, \"Attempt to use destroyed GameObject\");\n    }\n    \n    ComponentType type = COMPONENT_TYPE_NONE;\n    if (strcmp(componentType, \"Transform\") == 0) {\n        type = COMPONENT_TYPE_TRANSFORM;\n    } else if (strcmp(componentType, \"Sprite\") == 0) {\n        type = COMPONENT_TYPE_SPRITE;\n    } else if (strcmp(componentType, \"Collision\") == 0) {\n        type = COMPONENT_TYPE_COLLISION;\n    } else {\n        return luaL_error(L, \"Unknown component type: %s\", componentType);\n    }\n    \n    Component* component = game_object_get_component(luaObj->gameObject, type);\n    if (!component) {\n        lua_pushnil(L);\n        return 1;\n    }\n    \n    lua_engine_push_component(lua_engine_get_global(), component);\n    return 1;\n}\n\n// GameObject metatable\nstatic const luaL_Reg gameobject_methods[] = {\n    {\"new\", lua_gameobject_new},\n    {\"destroy\", lua_gameobject_destroy},\n    {\"setPosition\", lua_gameobject_set_position},\n    {\"getPosition\", lua_gameobject_get_position},\n    {\"addComponent\", lua_gameobject_add_component},\n    {\"getComponent\", lua_gameobject_get_component},\n    {\"__gc\", lua_gameobject_destroy},\n    {NULL, NULL}\n};\n\nvoid lua_engine_register_gameobject_bindings(LuaEngine* engine) {\n    lua_State* L = engine->L;\n    \n    // Create metatable\n    luaL_newmetatable(L, GAMEOBJECT_METATABLE);\n    lua_pushvalue(L, -1);\n    lua_setfield(L, -2, \"__index\");\n    luaL_setfuncs(L, gameobject_methods, 0);\n    lua_pop(L, 1);\n    \n    // Create GameObject table\n    lua_newtable(L);\n    lua_pushcfunction(L, lua_gameobject_new);\n    lua_setfield(L, -2, \"new\");\n    lua_setglobal(L, \"GameObject\");\n}\n\n// Utility functions\nvoid lua_engine_push_gameobject(LuaEngine* engine, GameObject* gameObject) {\n    lua_State* L = engine->L;\n    \n    if (!gameObject) {\n        lua_pushnil(L);\n        return;\n    }\n    \n    LuaGameObject* luaObj = (LuaGameObject*)lua_newuserdata(L, sizeof(LuaGameObject));\n    luaObj->gameObject = gameObject;\n    luaObj->scene = game_object_get_scene(gameObject);\n    luaObj->isValid = true;\n    \n    luaL_getmetatable(L, GAMEOBJECT_METATABLE);\n    lua_setmetatable(L, -2);\n}\n\nGameObject* lua_engine_check_gameobject(LuaEngine* engine, int index) {\n    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(engine->L, index, GAMEOBJECT_METATABLE);\n    \n    if (!luaObj->isValid) {\n        luaL_error(engine->L, \"Attempt to use destroyed GameObject\");\n        return NULL;\n    }\n    \n    return luaObj->gameObject;\n}\n```\n\n### Step 3: High-Level Lua API\n\n```lua\n-- engine.lua\nlocal Engine = {}\n\n-- Core engine functions\nfunction Engine.init()\n    -- Initialize engine systems\n    print(\"Playdate Engine Lua API initialized\")\nend\n\nfunction Engine.update(dt)\n    -- Update all game systems\n    -- This would call into C for performance-critical updates\nend\n\nfunction Engine.render()\n    -- Render all game objects\n    -- This would call into C for actual rendering\nend\n\n-- GameObject helper functions\nfunction Engine.createGameObject(x, y)\n    local obj = GameObject.new()\n    if x and y then\n        obj:setPosition(x, y)\n    end\n    return obj\nend\n\nfunction Engine.createSprite(imagePath, x, y)\n    local obj = Engine.createGameObject(x, y)\n    local sprite = obj:addComponent(\"Sprite\")\n    if imagePath then\n        sprite:loadImage(imagePath)\n    end\n    return obj, sprite\nend\n\n-- Scene management helpers\nfunction Engine.loadScene(sceneName)\n    -- Load scene from file or create new scene\n    print(\"Loading scene: \" .. sceneName)\nend\n\n-- Input handling\nlocal Input = {}\n\nfunction Input.isPressed(button)\n    -- Check if button is currently pressed\n    return false -- Placeholder\nend\n\nfunction Input.wasPressed(button)\n    -- Check if button was just pressed this frame\n    return false -- Placeholder\nend\n\nfunction Input.wasReleased(button)\n    -- Check if button was just released this frame\n    return false -- Placeholder\nend\n\n-- Math utilities\nlocal Math = {}\n\nfunction Math.clamp(value, min, max)\n    return math.max(min, math.min(max, value))\nend\n\nfunction Math.lerp(a, b, t)\n    return a + (b - a) * t\nend\n\nfunction Math.distance(x1, y1, x2, y2)\n    local dx = x2 - x1\n    local dy = y2 - y1\n    return math.sqrt(dx * dx + dy * dy)\nend\n\n-- Export modules\nEngine.Input = Input\nEngine.Math = Math\n\nreturn Engine\n```\n\n## Unit Tests\n\n### Lua Binding Tests\n\n```c\n// tests/bindings/test_lua_engine.c\n#include \"lua_engine.h\"\n#include <assert.h>\n#include <stdio.h>\n\nvoid test_lua_engine_creation(void) {\n    LuaEngine* engine = lua_engine_create(NULL);\n    assert(engine != NULL);\n    assert(engine->L != NULL);\n    assert(!lua_engine_has_error(engine));\n    \n    bool result = lua_engine_initialize(engine);\n    assert(result == true);\n    \n    lua_engine_destroy(engine);\n    printf(\"✓ Lua engine creation test passed\\n\");\n}\n\nvoid test_lua_script_execution(void) {\n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    \n    // Test simple script execution\n    const char* script = \"return 2 + 3\";\n    bool result = lua_engine_load_string(engine, script);\n    assert(result == true);\n    \n    // Call the loaded function\n    result = lua_engine_call_function(engine, NULL, 0, 1);\n    assert(result == true);\n    \n    // Check result\n    lua_State* L = engine->L;\n    assert(lua_isnumber(L, -1));\n    assert(lua_tonumber(L, -1) == 5);\n    \n    lua_engine_destroy(engine);\n    printf(\"✓ Lua script execution test passed\\n\");\n}\n\nvoid test_lua_error_handling(void) {\n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    \n    // Test script with syntax error\n    const char* badScript = \"invalid lua syntax {{{\";\n    bool result = lua_engine_load_string(engine, badScript);\n    assert(result == false);\n    assert(lua_engine_has_error(engine));\n    \n    const char* error = lua_engine_get_last_error(engine);\n    assert(error != NULL);\n    assert(strlen(error) > 0);\n    \n    lua_engine_clear_error(engine);\n    assert(!lua_engine_has_error(engine));\n    \n    lua_engine_destroy(engine);\n    printf(\"✓ Lua error handling test passed\\n\");\n}\n```\n\n### GameObject Binding Tests\n\n```c\n// tests/bindings/test_lua_gameobject.c\n#include \"lua_engine.h\"\n#include \"lua_gameobject.h\"\n#include <assert.h>\n#include <stdio.h>\n\nvoid test_lua_gameobject_creation(void) {\n    component_registry_init();\n    transform_component_register();\n    \n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    lua_engine_register_gameobject_bindings(engine);\n    \n    // Test GameObject creation from Lua\n    const char* script = \n        \"local obj = GameObject.new()\\n\"\n        \"return obj\";\n    \n    bool result = lua_engine_load_string(engine, script);\n    assert(result == true);\n    \n    result = lua_engine_call_function(engine, NULL, 0, 1);\n    assert(result == true);\n    \n    // Verify we got a GameObject\n    GameObject* obj = lua_engine_check_gameobject(engine, -1);\n    assert(obj != NULL);\n    \n    lua_engine_destroy(engine);\n    component_registry_shutdown();\n    printf(\"✓ Lua GameObject creation test passed\\n\");\n}\n\nvoid test_lua_gameobject_position(void) {\n    component_registry_init();\n    transform_component_register();\n    \n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    lua_engine_register_gameobject_bindings(engine);\n    \n    // Test position setting and getting\n    const char* script = \n        \"local obj = GameObject.new()\\n\"\n        \"obj:setPosition(100, 200)\\n\"\n        \"local x, y = obj:getPosition()\\n\"\n        \"return x, y\";\n    \n    bool result = lua_engine_load_string(engine, script);\n    assert(result == true);\n    \n    result = lua_engine_call_function(engine, NULL, 0, 2);\n    assert(result == true);\n    \n    lua_State* L = engine->L;\n    assert(lua_isnumber(L, -2));\n    assert(lua_isnumber(L, -1));\n    assert(lua_tonumber(L, -2) == 100);\n    assert(lua_tonumber(L, -1) == 200);\n    \n    lua_engine_destroy(engine);\n    component_registry_shutdown();\n    printf(\"✓ Lua GameObject position test passed\\n\");\n}\n\nvoid test_lua_component_management(void) {\n    component_registry_init();\n    transform_component_register();\n    sprite_component_register();\n    \n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    lua_engine_register_all_bindings(engine);\n    \n    // Test component addition and retrieval\n    const char* script = \n        \"local obj = GameObject.new()\\n\"\n        \"local sprite = obj:addComponent('Sprite')\\n\"\n        \"local transform = obj:getComponent('Transform')\\n\"\n        \"return sprite ~= nil, transform ~= nil\";\n    \n    bool result = lua_engine_load_string(engine, script);\n    assert(result == true);\n    \n    result = lua_engine_call_function(engine, NULL, 0, 2);\n    assert(result == true);\n    \n    lua_State* L = engine->L;\n    assert(lua_toboolean(L, -2) == 1); // sprite ~= nil\n    assert(lua_toboolean(L, -1) == 1); // transform ~= nil\n    \n    lua_engine_destroy(engine);\n    component_registry_shutdown();\n    printf(\"✓ Lua component management test passed\\n\");\n}\n```\n\n### Performance Tests\n\n```c\n// tests/bindings/test_lua_perf.c\n#include \"lua_engine.h\"\n#include <time.h>\n#include <stdio.h>\n\nvoid benchmark_lua_function_calls(void) {\n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    lua_engine_register_all_bindings(engine);\n    \n    // Create test script\n    const char* script = \n        \"function testFunction()\\n\"\n        \"  return 42\\n\"\n        \"end\";\n    \n    lua_engine_load_string(engine, script);\n    lua_engine_call_function(engine, NULL, 0, 0);\n    \n    clock_t start = clock();\n    \n    // Call Lua function many times\n    for (int i = 0; i < 10000; i++) {\n        lua_engine_call_function(engine, \"testFunction\", 0, 1);\n        lua_pop(engine->L, 1); // Pop result\n    }\n    \n    clock_t end = clock();\n    \n    double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC * 1000000; // microseconds\n    double per_call = time_taken / 10000;\n    \n    printf(\"Lua function calls: %.2f μs for 10,000 calls (%.2f μs per call)\\n\", \n           time_taken, per_call);\n    \n    // Verify performance target\n    assert(per_call < 10); // Less than 10μs per call\n    \n    lua_engine_destroy(engine);\n    printf(\"✓ Lua function call performance test passed\\n\");\n}\n\nvoid benchmark_gameobject_creation(void) {\n    component_registry_init();\n    transform_component_register();\n    \n    LuaEngine* engine = lua_engine_create(NULL);\n    lua_engine_initialize(engine);\n    lua_engine_register_all_bindings(engine);\n    \n    const char* script = \n        \"function createGameObject()\\n\"\n        \"  local obj = GameObject.new()\\n\"\n        \"  obj:setPosition(100, 200)\\n\"\n        \"  return obj\\n\"\n        \"end\";\n    \n    lua_engine_load_string(engine, script);\n    lua_engine_call_function(engine, NULL, 0, 0);\n    \n    clock_t start = clock();\n    \n    // Create GameObjects from Lua\n    for (int i = 0; i < 1000; i++) {\n        lua_engine_call_function(engine, \"createGameObject\", 0, 1);\n        lua_pop(engine->L, 1); // Pop result\n    }\n    \n    clock_t end = clock();\n    \n    double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC * 1000; // milliseconds\n    double per_object = time_taken / 1000;\n    \n    printf(\"GameObject creation: %.2f ms for 1,000 objects (%.2f ms per object)\\n\", \n           time_taken, per_object);\n    \n    // Verify reasonable performance\n    assert(per_object < 1); // Less than 1ms per GameObject creation\n    \n    lua_engine_destroy(engine);\n    component_registry_shutdown();\n    printf(\"✓ GameObject creation performance test passed\\n\");\n}\n```\n\n## Integration Points\n\n### All Previous Phases\n- Complete Lua API coverage for all C engine functionality\n- Memory management integration with Lua garbage collector\n- Performance optimization through selective C/Lua usage\n- Error handling and debugging integration\n\n## Performance Targets\n\n### Binding Performance\n- **Function call overhead**: < 10μs per Lua-to-C call\n- **Memory overhead**: < 20% for Lua object wrappers\n- **Garbage collection**: < 1ms impact per frame\n- **Hot-path performance**: Critical code remains in C\n\n## Testing Criteria\n\n### Unit Test Requirements\n- ✅ Lua engine initialization and cleanup\n- ✅ Script loading and execution\n- ✅ Error handling and reporting\n- ✅ GameObject binding functionality\n- ✅ Component system integration\n- ✅ Memory management and garbage collection\n\n### Performance Test Requirements\n- ✅ Function call overhead benchmarks\n- ✅ GameObject creation performance\n- ✅ Memory usage measurements\n- ✅ Garbage collection impact analysis\n\n### Integration Test Requirements\n- ✅ Complete API coverage validation\n- ✅ C-Lua memory management\n- ✅ Error propagation between C and Lua\n- ✅ Performance optimization effectiveness\n\n## Success Criteria\n\n### Functional Requirements\n- [ ] Complete Lua API for all engine functionality\n- [ ] Type-safe bindings with runtime validation\n- [ ] Automatic memory management and cleanup\n- [ ] Comprehensive error handling and reporting\n- [ ] High-level Lua utilities and helpers\n\n### Performance Requirements\n- [ ] < 10μs overhead per function call\n- [ ] < 20% memory overhead for Lua objects\n- [ ] Minimal garbage collection impact\n- [ ] Performance-critical paths remain in C\n\n### Quality Requirements\n- [ ] 100% unit test coverage for binding system\n- [ ] Performance benchmarks meet all targets\n- [ ] Comprehensive documentation and examples\n- [ ] Robust error handling and debugging support\n\n## Next Steps\n\nUpon completion of this phase:\n1. Verify all Lua binding tests pass\n2. Confirm performance benchmarks meet targets\n3. Test complete API coverage and functionality\n4. Proceed to Phase 9: Build System implementation\n5. Begin implementing CMake and Playdate SDK integration\n\nThis phase provides the scripting foundation that enables rapid game development while maintaining engine performance through efficient C-Lua integration.
+LuaEngine* lua_engine_create(PlaydateAPI* pd);
+void lua_engine_destroy(LuaEngine* engine);
+bool lua_engine_initialize(LuaEngine* engine);
+
+// Script execution
+bool lua_engine_load_file(LuaEngine* engine, const char* filename);
+bool lua_engine_load_string(LuaEngine* engine, const char* script);
+bool lua_engine_call_function(LuaEngine* engine, const char* functionName, 
+                             int numArgs, int numResults);
+```
+
+#### Error and Memory Management
+
+```c
+// Error handling
+const char* lua_engine_get_last_error(LuaEngine* engine);
+void lua_engine_clear_error(LuaEngine* engine);
+bool lua_engine_has_error(LuaEngine* engine);
+
+// Memory management
+void lua_engine_collect_garbage(LuaEngine* engine);
+size_t lua_engine_get_memory_usage(LuaEngine* engine);
+void lua_engine_set_memory_limit(LuaEngine* engine, size_t maxMemory);
+```
+
+#### Binding Registration
+
+```c
+// Binding registration
+void lua_engine_register_all_bindings(LuaEngine* engine);
+void lua_engine_register_gameobject_bindings(LuaEngine* engine);
+void lua_engine_register_component_bindings(LuaEngine* engine);
+void lua_engine_register_scene_bindings(LuaEngine* engine);
+void lua_engine_register_math_bindings(LuaEngine* engine);
+```
+
+#### Utility and Debugging Functions
+
+```c
+// Utility functions
+void lua_engine_push_gameobject(LuaEngine* engine, GameObject* gameObject);
+GameObject* lua_engine_check_gameobject(LuaEngine* engine, int index);
+void lua_engine_push_component(LuaEngine* engine, Component* component);
+Component* lua_engine_check_component(LuaEngine* engine, int index, 
+                                     ComponentType type);
+
+// Performance and debugging
+void lua_engine_print_stats(LuaEngine* engine);
+void lua_engine_reset_stats(LuaEngine* engine);
+void lua_engine_enable_debug_hooks(LuaEngine* engine, bool enabled);
+
+// Global engine access
+LuaEngine* lua_engine_get_global(void);
+void lua_engine_set_global(LuaEngine* engine);
+
+#endif // LUA_ENGINE_H
+```
+
+### Step 2: GameObject Lua Bindings
+
+#### GameObject Wrapper Structure
+
+```c
+// lua_gameobject.c
+#include "lua_gameobject.h"
+#include "lua_engine.h"
+#include "game_object.h"
+#include "transform_component.h"
+
+#define GAMEOBJECT_METATABLE "PlaydateEngine.GameObject"
+
+// GameObject userdata wrapper
+typedef struct LuaGameObject {
+    GameObject* gameObject;
+    Scene* scene;                // For validation
+    bool isValid;               // Prevents use after destruction
+} LuaGameObject;
+```
+
+#### GameObject Creation and Destruction
+
+```c
+// GameObject creation
+static int lua_gameobject_new(lua_State* L) {
+    LuaEngine* engine = lua_engine_get_global();
+    
+    // Get scene (optional parameter)
+    Scene* scene = engine->activeScene;
+    if (lua_gettop(L) > 0 && !lua_isnil(L, 1)) {
+        // TODO: Check if user provided a scene
+    }
+    
+    // Create GameObject
+    GameObject* gameObject = game_object_create(scene);
+    if (!gameObject) {
+        return luaL_error(L, "Failed to create GameObject");
+    }
+    
+    // Create Lua wrapper
+    LuaGameObject* luaObj = (LuaGameObject*)lua_newuserdata(L, sizeof(LuaGameObject));
+    luaObj->gameObject = gameObject;
+    luaObj->scene = scene;
+    luaObj->isValid = true;
+    
+    // Set metatable
+    luaL_getmetatable(L, GAMEOBJECT_METATABLE);
+    lua_setmetatable(L, -2);
+    
+    return 1;
+}
+
+// GameObject destruction
+static int lua_gameobject_destroy(lua_State* L) {
+    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);
+    
+    if (luaObj->isValid && luaObj->gameObject) {
+        game_object_destroy(luaObj->gameObject);
+        luaObj->gameObject = NULL;
+        luaObj->isValid = false;
+    }
+    
+    return 0;
+}
+```
+
+#### Position Management
+
+```c
+// GameObject position
+static int lua_gameobject_set_position(lua_State* L) {
+    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    
+    if (!luaObj->isValid) {
+        return luaL_error(L, "Attempt to use destroyed GameObject");
+    }
+    
+    game_object_set_position(luaObj->gameObject, x, y);
+    return 0;
+}
+
+static int lua_gameobject_get_position(lua_State* L) {
+    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);
+    
+    if (!luaObj->isValid) {
+        return luaL_error(L, "Attempt to use destroyed GameObject");
+    }
+    
+    float x, y;
+    game_object_get_position(luaObj->gameObject, &x, &y);
+    
+    lua_pushnumber(L, x);
+    lua_pushnumber(L, y);
+    return 2;
+}
+```
+
+#### Component Management
+
+```c
+// Component management
+static int lua_gameobject_add_component(lua_State* L) {
+    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);
+    const char* componentType = luaL_checkstring(L, 2);
+    
+    if (!luaObj->isValid) {
+        return luaL_error(L, "Attempt to use destroyed GameObject");
+    }
+    
+    ComponentType type = COMPONENT_TYPE_NONE;
+    if (strcmp(componentType, "Sprite") == 0) {
+        type = COMPONENT_TYPE_SPRITE;
+    } else if (strcmp(componentType, "Collision") == 0) {
+        type = COMPONENT_TYPE_COLLISION;
+    } else {
+        return luaL_error(L, "Unknown component type: %s", componentType);
+    }
+    
+    Component* component = component_registry_create(type, luaObj->gameObject);
+    if (!component) {
+        return luaL_error(L, "Failed to create component: %s", componentType);
+    }
+    
+    GameObjectResult result = game_object_add_component(luaObj->gameObject, component);
+    if (result != GAMEOBJECT_OK) {
+        component_registry_destroy(component);
+        return luaL_error(L, "Failed to add component to GameObject");
+    }
+    
+    // Push component as Lua object
+    lua_engine_push_component(lua_engine_get_global(), component);
+    return 1;
+}
+
+static int lua_gameobject_get_component(lua_State* L) {
+    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(L, 1, GAMEOBJECT_METATABLE);
+    const char* componentType = luaL_checkstring(L, 2);
+    
+    if (!luaObj->isValid) {
+        return luaL_error(L, "Attempt to use destroyed GameObject");
+    }
+    
+    ComponentType type = COMPONENT_TYPE_NONE;
+    if (strcmp(componentType, "Transform") == 0) {
+        type = COMPONENT_TYPE_TRANSFORM;
+    } else if (strcmp(componentType, "Sprite") == 0) {
+        type = COMPONENT_TYPE_SPRITE;
+    } else if (strcmp(componentType, "Collision") == 0) {
+        type = COMPONENT_TYPE_COLLISION;
+    } else {
+        return luaL_error(L, "Unknown component type: %s", componentType);
+    }
+    
+    Component* component = game_object_get_component(luaObj->gameObject, type);
+    if (!component) {
+        lua_pushnil(L);
+        return 1;
+    }
+    
+    lua_engine_push_component(lua_engine_get_global(), component);
+    return 1;
+}
+```
+
+#### Binding Registration
+
+```c
+// GameObject metatable
+static const luaL_Reg gameobject_methods[] = {
+    {"new", lua_gameobject_new},
+    {"destroy", lua_gameobject_destroy},
+    {"setPosition", lua_gameobject_set_position},
+    {"getPosition", lua_gameobject_get_position},
+    {"addComponent", lua_gameobject_add_component},
+    {"getComponent", lua_gameobject_get_component},
+    {"__gc", lua_gameobject_destroy},
+    {NULL, NULL}
+};
+
+void lua_engine_register_gameobject_bindings(LuaEngine* engine) {
+    lua_State* L = engine->L;
+    
+    // Create metatable
+    luaL_newmetatable(L, GAMEOBJECT_METATABLE);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -2, "__index");
+    luaL_setfuncs(L, gameobject_methods, 0);
+    lua_pop(L, 1);
+    
+    // Create GameObject table
+    lua_newtable(L);
+    lua_pushcfunction(L, lua_gameobject_new);
+    lua_setfield(L, -2, "new");
+    lua_setglobal(L, "GameObject");
+}
+```
+
+#### Utility Functions
+
+```c
+// Utility functions
+void lua_engine_push_gameobject(LuaEngine* engine, GameObject* gameObject) {
+    lua_State* L = engine->L;
+    
+    if (!gameObject) {
+        lua_pushnil(L);
+        return;
+    }
+    
+    LuaGameObject* luaObj = (LuaGameObject*)lua_newuserdata(L, sizeof(LuaGameObject));
+    luaObj->gameObject = gameObject;
+    luaObj->scene = game_object_get_scene(gameObject);
+    luaObj->isValid = true;
+    
+    luaL_getmetatable(L, GAMEOBJECT_METATABLE);
+    lua_setmetatable(L, -2);
+}
+
+GameObject* lua_engine_check_gameobject(LuaEngine* engine, int index) {
+    LuaGameObject* luaObj = (LuaGameObject*)luaL_checkudata(engine->L, index, GAMEOBJECT_METATABLE);
+    
+    if (!luaObj->isValid) {
+        luaL_error(engine->L, "Attempt to use destroyed GameObject");
+        return NULL;
+    }
+    
+    return luaObj->gameObject;
+}
+```
+
+### Step 3: High-Level Lua API
+
+#### Core Engine Module
+
+```lua
+-- engine.lua
+local Engine = {}
+
+-- Core engine functions
+function Engine.init()
+    -- Initialize engine systems
+    print("Playdate Engine Lua API initialized")
+end
+
+function Engine.update(dt)
+    -- Update all game systems
+    -- This would call into C for performance-critical updates
+end
+
+function Engine.render()
+    -- Render all game objects
+    -- This would call into C for actual rendering
+end
+```
+
+#### GameObject Helper Functions
+
+```lua
+-- GameObject helper functions
+function Engine.createGameObject(x, y)
+    local obj = GameObject.new()
+    if x and y then
+        obj:setPosition(x, y)
+    end
+    return obj
+end
+
+function Engine.createSprite(imagePath, x, y)
+    local obj = Engine.createGameObject(x, y)
+    local sprite = obj:addComponent("Sprite")
+    if imagePath then
+        sprite:loadImage(imagePath)
+    end
+    return obj, sprite
+end
+
+-- Scene management helpers
+function Engine.loadScene(sceneName)
+    -- Load scene from file or create new scene
+    print("Loading scene: " .. sceneName)
+end
+```
+
+#### Input Handling Module
+
+```lua
+-- Input handling
+local Input = {}
+
+function Input.isPressed(button)
+    -- Check if button is currently pressed
+    return false -- Placeholder
+end
+
+function Input.wasPressed(button)
+    -- Check if button was just pressed this frame
+    return false -- Placeholder
+end
+
+function Input.wasReleased(button)
+    -- Check if button was just released this frame
+    return false -- Placeholder
+end
+```
+
+#### Math Utilities
+
+```lua
+-- Math utilities
+local Math = {}
+
+function Math.clamp(value, min, max)
+    return math.max(min, math.min(max, value))
+end
+
+function Math.lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+function Math.distance(x1, y1, x2, y2)
+    local dx = x2 - x1
+    local dy = y2 - y1
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Export modules
+Engine.Input = Input
+Engine.Math = Math
+
+return Engine
+```
+
+## Unit Tests
+
+### Lua Binding Tests
+
+#### Engine Tests
+
+```c
+// tests/bindings/test_lua_engine.c
+#include "lua_engine.h"
+#include <assert.h>
+#include <stdio.h>
+
+void test_lua_engine_creation(void) {
+    LuaEngine* engine = lua_engine_create(NULL);
+    assert(engine != NULL);
+    assert(engine->L != NULL);
+    assert(!lua_engine_has_error(engine));
+    
+    bool result = lua_engine_initialize(engine);
+    assert(result == true);
+    
+    lua_engine_destroy(engine);
+    printf("✓ Lua engine creation test passed\n");
+}
+
+void test_lua_script_execution(void) {
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    
+    // Test simple script execution
+    const char* script = "return 2 + 3";
+    bool result = lua_engine_load_string(engine, script);
+    assert(result == true);
+    
+    // Call the loaded function
+    result = lua_engine_call_function(engine, NULL, 0, 1);
+    assert(result == true);
+    
+    // Check result
+    lua_State* L = engine->L;
+    assert(lua_isnumber(L, -1));
+    assert(lua_tonumber(L, -1) == 5);
+    
+    lua_engine_destroy(engine);
+    printf("✓ Lua script execution test passed\n");
+}
+```
+
+#### Error Handling Tests
+
+```c
+void test_lua_error_handling(void) {
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    
+    // Test script with syntax error
+    const char* badScript = "invalid lua syntax {{{";
+    bool result = lua_engine_load_string(engine, badScript);
+    assert(result == false);
+    assert(lua_engine_has_error(engine));
+    
+    const char* error = lua_engine_get_last_error(engine);
+    assert(error != NULL);
+    assert(strlen(error) > 0);
+    
+    lua_engine_clear_error(engine);
+    assert(!lua_engine_has_error(engine));
+    
+    lua_engine_destroy(engine);
+    printf("✓ Lua error handling test passed\n");
+}
+```
+
+### GameObject Binding Tests
+
+#### Basic GameObject Tests
+
+```c
+// tests/bindings/test_lua_gameobject.c
+#include "lua_engine.h"
+#include "lua_gameobject.h"
+#include <assert.h>
+#include <stdio.h>
+
+void test_lua_gameobject_creation(void) {
+    component_registry_init();
+    transform_component_register();
+    
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    lua_engine_register_gameobject_bindings(engine);
+    
+    // Test GameObject creation from Lua
+    const char* script = 
+        "local obj = GameObject.new()\n"
+        "return obj";
+    
+    bool result = lua_engine_load_string(engine, script);
+    assert(result == true);
+    
+    result = lua_engine_call_function(engine, NULL, 0, 1);
+    assert(result == true);
+    
+    // Verify we got a GameObject
+    GameObject* obj = lua_engine_check_gameobject(engine, -1);
+    assert(obj != NULL);
+    
+    lua_engine_destroy(engine);
+    component_registry_shutdown();
+    printf("✓ Lua GameObject creation test passed\n");
+}
+```
+
+#### Position Management Tests
+
+```c
+void test_lua_gameobject_position(void) {
+    component_registry_init();
+    transform_component_register();
+    
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    lua_engine_register_gameobject_bindings(engine);
+    
+    // Test position setting and getting
+    const char* script = 
+        "local obj = GameObject.new()\n"
+        "obj:setPosition(100, 200)\n"
+        "local x, y = obj:getPosition()\n"
+        "return x, y";
+    
+    bool result = lua_engine_load_string(engine, script);
+    assert(result == true);
+    
+    result = lua_engine_call_function(engine, NULL, 0, 2);
+    assert(result == true);
+    
+    lua_State* L = engine->L;
+    assert(lua_isnumber(L, -2));
+    assert(lua_isnumber(L, -1));
+    assert(lua_tonumber(L, -2) == 100);
+    assert(lua_tonumber(L, -1) == 200);
+    
+    lua_engine_destroy(engine);
+    component_registry_shutdown();
+    printf("✓ Lua GameObject position test passed\n");
+}
+```
+
+#### Component Management Tests
+
+```c
+void test_lua_component_management(void) {
+    component_registry_init();
+    transform_component_register();
+    sprite_component_register();
+    
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    lua_engine_register_all_bindings(engine);
+    
+    // Test component addition and retrieval
+    const char* script = 
+        "local obj = GameObject.new()\n"
+        "local sprite = obj:addComponent('Sprite')\n"
+        "local transform = obj:getComponent('Transform')\n"
+        "return sprite ~= nil, transform ~= nil";
+    
+    bool result = lua_engine_load_string(engine, script);
+    assert(result == true);
+    
+    result = lua_engine_call_function(engine, NULL, 0, 2);
+    assert(result == true);
+    
+    lua_State* L = engine->L;
+    assert(lua_toboolean(L, -2) == 1); // sprite ~= nil
+    assert(lua_toboolean(L, -1) == 1); // transform ~= nil
+    
+    lua_engine_destroy(engine);
+    component_registry_shutdown();
+    printf("✓ Lua component management test passed\n");
+}
+```
+
+### Performance Tests
+
+#### Function Call Benchmarks
+
+```c
+// tests/bindings/test_lua_perf.c
+#include "lua_engine.h"
+#include <time.h>
+#include <stdio.h>
+
+void benchmark_lua_function_calls(void) {
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    lua_engine_register_all_bindings(engine);
+    
+    // Create test script
+    const char* script = 
+        "function testFunction()\n"
+        "  return 42\n"
+        "end";
+    
+    lua_engine_load_string(engine, script);
+    lua_engine_call_function(engine, NULL, 0, 0);
+    
+    clock_t start = clock();
+    
+    // Call Lua function many times
+    for (int i = 0; i < 10000; i++) {
+        lua_engine_call_function(engine, "testFunction", 0, 1);
+        lua_pop(engine->L, 1); // Pop result
+    }
+    
+    clock_t end = clock();
+    
+    double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC * 1000000; // microseconds
+    double per_call = time_taken / 10000;
+    
+    printf("Lua function calls: %.2f μs for 10,000 calls (%.2f μs per call)\n", 
+           time_taken, per_call);
+    
+    // Verify performance target
+    assert(per_call < 10); // Less than 10μs per call
+    
+    lua_engine_destroy(engine);
+    printf("✓ Lua function call performance test passed\n");
+}
+```
+
+#### GameObject Creation Benchmarks
+
+```c
+void benchmark_gameobject_creation(void) {
+    component_registry_init();
+    transform_component_register();
+    
+    LuaEngine* engine = lua_engine_create(NULL);
+    lua_engine_initialize(engine);
+    lua_engine_register_all_bindings(engine);
+    
+    const char* script = 
+        "function createGameObject()\n"
+        "  local obj = GameObject.new()\n"
+        "  obj:setPosition(100, 200)\n"
+        "  return obj\n"
+        "end";
+    
+    lua_engine_load_string(engine, script);
+    lua_engine_call_function(engine, NULL, 0, 0);
+    
+    clock_t start = clock();
+    
+    // Create GameObjects from Lua
+    for (int i = 0; i < 1000; i++) {
+        lua_engine_call_function(engine, "createGameObject", 0, 1);
+        lua_pop(engine->L, 1); // Pop result
+    }
+    
+    clock_t end = clock();
+    
+    double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC * 1000; // milliseconds
+    double per_object = time_taken / 1000;
+    
+    printf("GameObject creation: %.2f ms for 1,000 objects (%.2f ms per object)\n", 
+           time_taken, per_object);
+    
+    // Verify reasonable performance
+    assert(per_object < 1); // Less than 1ms per GameObject creation
+    
+    lua_engine_destroy(engine);
+    component_registry_shutdown();
+    printf("✓ GameObject creation performance test passed\n");
+}
+```
+
+## Integration Points
+
+### All Previous Phases
+- Complete Lua API coverage for all C engine functionality
+- Memory management integration with Lua garbage collector
+- Performance optimization through selective C/Lua usage
+- Error handling and debugging integration
+
+## Performance Targets
+
+### Binding Performance
+- **Function call overhead**: < 10μs per Lua-to-C call
+- **Memory overhead**: < 20% for Lua object wrappers
+- **Garbage collection**: < 1ms impact per frame
+- **Hot-path performance**: Critical code remains in C
+
+## Testing Criteria
+
+### Unit Test Requirements
+- ✅ Lua engine initialization and cleanup
+- ✅ Script loading and execution
+- ✅ Error handling and reporting
+- ✅ GameObject binding functionality
+- ✅ Component system integration
+- ✅ Memory management and garbage collection
+
+### Performance Test Requirements
+- ✅ Function call overhead benchmarks
+- ✅ GameObject creation performance
+- ✅ Memory usage measurements
+- ✅ Garbage collection impact analysis
+
+### Integration Test Requirements
+- ✅ Complete API coverage validation
+- ✅ C-Lua memory management
+- ✅ Error propagation between C and Lua
+- ✅ Performance optimization effectiveness
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] Complete Lua API for all engine functionality
+- [ ] Type-safe bindings with runtime validation
+- [ ] Automatic memory management and cleanup
+- [ ] Comprehensive error handling and reporting
+- [ ] High-level Lua utilities and helpers
+
+### Performance Requirements
+- [ ] < 10μs overhead per function call
+- [ ] < 20% memory overhead for Lua objects
+- [ ] Minimal garbage collection impact
+- [ ] Performance-critical paths remain in C
+
+### Quality Requirements
+- [ ] 100% unit test coverage for binding system
+- [ ] Performance benchmarks meet all targets
+- [ ] Comprehensive documentation and examples
+- [ ] Robust error handling and debugging support
+
+## Next Steps
+
+Upon completion of this phase:
+1. Verify all Lua binding tests pass
+2. Confirm performance benchmarks meet targets
+3. Test complete API coverage and functionality
+4. Proceed to Phase 9: Build System implementation
+5. Begin implementing CMake and Playdate SDK integration
+
+This phase provides the scripting foundation that enables rapid game development while maintaining engine performance through efficient C-Lua integration.

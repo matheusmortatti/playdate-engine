@@ -57,4 +57,784 @@ Implement a comprehensive CMake-based build system with full Playdate SDK integr
 
 ### Step 1: Root CMakeLists.txt
 
-```cmake\n# CMakeLists.txt\ncmake_minimum_required(VERSION 3.19)\n\n# Project configuration\nproject(PlaydateEngine \n    VERSION 1.0.0\n    DESCRIPTION \"High-performance game development engine for Playdate\"\n    LANGUAGES C CXX\n)\n\n# Set C standard\nset(CMAKE_C_STANDARD 11)\nset(CMAKE_C_STANDARD_REQUIRED ON)\nset(CMAKE_C_EXTENSIONS OFF)\n\n# Build options\noption(ENABLE_LUA_BINDINGS \"Enable Lua scripting support\" ON)\noption(ENABLE_TESTING \"Enable unit testing\" ON)\noption(ENABLE_EXAMPLES \"Build example projects\" ON)\noption(ENABLE_PROFILING \"Enable profiling support\" OFF)\noption(BUILD_SHARED_LIBS \"Build shared libraries\" OFF)\n\n# Platform detection\nif(CMAKE_SYSTEM_NAME STREQUAL \"Darwin\")\n    set(PLAYDATE_PLATFORM \"Mac\")\nelseif(CMAKE_SYSTEM_NAME STREQUAL \"Windows\")\n    set(PLAYDATE_PLATFORM \"Windows\")\nelseif(CMAKE_SYSTEM_NAME STREQUAL \"Linux\")\n    set(PLAYDATE_PLATFORM \"Linux\")\nelse()\n    message(FATAL_ERROR \"Unsupported platform: ${CMAKE_SYSTEM_NAME}\")\nendif()\n\n# Playdate SDK path configuration\nif(NOT DEFINED PLAYDATE_SDK_PATH)\n    if(DEFINED ENV{PLAYDATE_SDK_PATH})\n        set(PLAYDATE_SDK_PATH $ENV{PLAYDATE_SDK_PATH})\n    else()\n        # Try common default locations\n        if(PLAYDATE_PLATFORM STREQUAL \"Mac\")\n            set(PLAYDATE_SDK_PATH \"/Users/matheusmortatti/Playdate\")\n        elseif(PLAYDATE_PLATFORM STREQUAL \"Windows\")\n            set(PLAYDATE_SDK_PATH \"C:/Users/$ENV{USERNAME}/Documents/PlaydateSDK\")\n        endif()\n    endif()\nendif()\n\n# Validate Playdate SDK\nif(NOT EXISTS \"${PLAYDATE_SDK_PATH}/C_API/pd_api.h\")\n    message(FATAL_ERROR \"Playdate SDK not found at: ${PLAYDATE_SDK_PATH}\")\nendif()\n\nmessage(STATUS \"Using Playdate SDK: ${PLAYDATE_SDK_PATH}\")\n\n# Include CMake modules\nlist(APPEND CMAKE_MODULE_PATH \"${CMAKE_CURRENT_SOURCE_DIR}/cmake\")\ninclude(PlaydateSDK)\ninclude(Testing)\ninclude(Assets)\n\n# Compiler flags\nif(CMAKE_C_COMPILER_ID STREQUAL \"Clang\" OR CMAKE_C_COMPILER_ID STREQUAL \"GNU\")\n    set(ENGINE_C_FLAGS\n        -Wall\n        -Wextra\n        -Wpedantic\n        -Wno-unused-parameter\n        -ffast-math\n    )\n    \n    if(CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n        list(APPEND ENGINE_C_FLAGS -g -O0 -DDEBUG=1)\n    elseif(CMAKE_BUILD_TYPE STREQUAL \"Release\")\n        list(APPEND ENGINE_C_FLAGS -O3 -DNDEBUG=1 -flto)\n    endif()\nendif()\n\n# Global definitions\nadd_compile_definitions(\n    ENGINE_VERSION=\"${PROJECT_VERSION}\"\n    PLAYDATE_SDK_PATH=\"${PLAYDATE_SDK_PATH}\"\n)\n\nif(ENABLE_LUA_BINDINGS)\n    add_compile_definitions(ENABLE_LUA_BINDINGS=1)\nendif()\n\n# Include directories\ninclude_directories(\n    ${CMAKE_CURRENT_SOURCE_DIR}/include\n    ${PLAYDATE_SDK_PATH}/C_API\n)\n\n# Subdirectories\nadd_subdirectory(src)\n\nif(ENABLE_TESTING)\n    enable_testing()\n    add_subdirectory(tests)\nendif()\n\nif(ENABLE_EXAMPLES)\n    add_subdirectory(examples)\nendif()\n\n# Installation configuration\ninclude(GNUInstallDirs)\ninstall(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\ninstall(DIRECTORY lua/ DESTINATION ${CMAKE_INSTALL_DATADIR}/playdate-engine/lua)\n\n# Package configuration\ninclude(Packaging)\n```\n\n### Step 2: Playdate SDK Integration\n\n```cmake\n# cmake/PlaydateSDK.cmake\n\n# Playdate SDK integration module\n\n# Find Playdate toolchain\nif(PLAYDATE_PLATFORM STREQUAL \"Mac\")\n    set(PLAYDATE_C_COMPILER \"${PLAYDATE_SDK_PATH}/bin/gcc-arm-none-eabi\")\n    set(PLAYDATE_SIMULATOR_COMPILER \"clang\")\nelseif(PLAYDATE_PLATFORM STREQUAL \"Windows\")\n    set(PLAYDATE_C_COMPILER \"${PLAYDATE_SDK_PATH}/bin/gcc-arm-none-eabi.exe\")\n    set(PLAYDATE_SIMULATOR_COMPILER \"clang\")\nelse()\n    message(FATAL_ERROR \"Unsupported platform for Playdate development\")\nendif()\n\n# Target type selection\nif(NOT DEFINED PLAYDATE_TARGET)\n    set(PLAYDATE_TARGET \"simulator\" CACHE STRING \"Build target: simulator or device\")\nendif()\n\nset_property(CACHE PLAYDATE_TARGET PROPERTY STRINGS \"simulator\" \"device\")\n\n# Compiler and flags configuration\nif(PLAYDATE_TARGET STREQUAL \"device\")\n    # Device build configuration\n    set(CMAKE_SYSTEM_NAME Generic)\n    set(CMAKE_SYSTEM_PROCESSOR arm)\n    set(CMAKE_C_COMPILER ${PLAYDATE_C_COMPILER})\n    set(CMAKE_CXX_COMPILER ${PLAYDATE_C_COMPILER})\n    \n    set(PLAYDATE_DEVICE_FLAGS\n        -mcpu=cortex-m7\n        -mthumb\n        -mfpu=fpv5-sp-d16\n        -mfloat-abi=hard\n        -D__FPU_USED=1\n        -DTARGET_PLAYDATE=1\n        -DTARGET_EXTENSION=1\n    )\n    \n    set(CMAKE_C_FLAGS \"${CMAKE_C_FLAGS} ${PLAYDATE_DEVICE_FLAGS}\")\n    set(CMAKE_EXE_LINKER_FLAGS \"${CMAKE_EXE_LINKER_FLAGS} -nostartfiles\")\n    \nelse()\n    # Simulator build configuration\n    set(CMAKE_C_COMPILER ${PLAYDATE_SIMULATOR_COMPILER})\n    set(CMAKE_CXX_COMPILER ${PLAYDATE_SIMULATOR_COMPILER})\n    \n    set(PLAYDATE_SIMULATOR_FLAGS\n        -DTARGET_SIMULATOR=1\n    )\n    \n    if(PLAYDATE_PLATFORM STREQUAL \"Mac\")\n        list(APPEND PLAYDATE_SIMULATOR_FLAGS -arch x86_64 -arch arm64)\n    endif()\n    \n    set(CMAKE_C_FLAGS \"${CMAKE_C_FLAGS} ${PLAYDATE_SIMULATOR_FLAGS}\")\nendif()\n\n# Playdate library target\nfunction(add_playdate_game TARGET_NAME)\n    cmake_parse_arguments(PLAYDATE_GAME\n        \"\" # No boolean options\n        \"SOURCE_DIR;ASSETS_DIR;OUTPUT_NAME\" # Single value options\n        \"SOURCES;LIBRARIES;INCLUDE_DIRS\" # Multi-value options\n        ${ARGN}\n    )\n    \n    # Set defaults\n    if(NOT PLAYDATE_GAME_SOURCE_DIR)\n        set(PLAYDATE_GAME_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})\n    endif()\n    \n    if(NOT PLAYDATE_GAME_OUTPUT_NAME)\n        set(PLAYDATE_GAME_OUTPUT_NAME ${TARGET_NAME})\n    endif()\n    \n    # Create executable target\n    add_executable(${TARGET_NAME} ${PLAYDATE_GAME_SOURCES})\n    \n    # Link libraries\n    target_link_libraries(${TARGET_NAME} \n        playdate-engine\n        ${PLAYDATE_GAME_LIBRARIES}\n    )\n    \n    # Include directories\n    if(PLAYDATE_GAME_INCLUDE_DIRS)\n        target_include_directories(${TARGET_NAME} PRIVATE ${PLAYDATE_GAME_INCLUDE_DIRS})\n    endif()\n    \n    # Platform-specific configuration\n    if(PLAYDATE_TARGET STREQUAL \"device\")\n        # Device-specific linking\n        target_link_libraries(${TARGET_NAME} \n            \"${PLAYDATE_SDK_PATH}/C_API/buildsupport/setup.c\"\n        )\n        \n        set_target_properties(${TARGET_NAME} PROPERTIES\n            SUFFIX \".elf\"\n            LINK_FLAGS \"-T${PLAYDATE_SDK_PATH}/C_API/buildsupport/link_map.ld\"\n        )\n        \n    else()\n        # Simulator-specific linking\n        if(PLAYDATE_PLATFORM STREQUAL \"Mac\")\n            target_link_libraries(${TARGET_NAME} \n                \"-framework CoreFoundation\"\n                \"-framework CoreGraphics\"\n                \"-framework CoreText\"\n                \"-framework Foundation\"\n            )\n            \n            set_target_properties(${TARGET_NAME} PROPERTIES\n                SUFFIX \".dylib\"\n                BUNDLE TRUE\n            )\n        endif()\n    endif()\n    \n    # Asset processing\n    if(PLAYDATE_GAME_ASSETS_DIR)\n        process_playdate_assets(${TARGET_NAME} ${PLAYDATE_GAME_ASSETS_DIR})\n    endif()\n    \nendfunction()\n\n# Asset processing function\nfunction(process_playdate_assets TARGET_NAME ASSETS_DIR)\n    if(NOT EXISTS ${ASSETS_DIR})\n        message(WARNING \"Assets directory not found: ${ASSETS_DIR}\")\n        return()\n    endif()\n    \n    # Find all asset files\n    file(GLOB_RECURSE ASSET_FILES \n        \"${ASSETS_DIR}/*.png\"\n        \"${ASSETS_DIR}/*.wav\"\n        \"${ASSETS_DIR}/*.aiff\"\n        \"${ASSETS_DIR}/*.fnt\"\n        \"${ASSETS_DIR}/*.lua\"\n    )\n    \n    # Process each asset\n    foreach(ASSET_FILE ${ASSET_FILES})\n        get_filename_component(ASSET_NAME ${ASSET_FILE} NAME)\n        \n        # Copy to build directory\n        configure_file(${ASSET_FILE} \n            \"${CMAKE_CURRENT_BINARY_DIR}/assets/${ASSET_NAME}\"\n            COPYONLY\n        )\n    endforeach()\n    \nendfunction()\n```\n\n### Step 3: Source Code Build Configuration\n\n```cmake\n# src/CMakeLists.txt\n\n# Engine core library\nset(ENGINE_CORE_SOURCES\n    core/memory_pool.c\n    core/component.c\n    core/component_registry.c\n    core/game_object.c\n    core/scene.c\n    core/transform_component.c\n    \n    systems/spatial_grid.c\n    systems/update_systems.c\n    \n    components/sprite_component.c\n    components/collision_component.c\n    \n    physics/aabb.c\n    physics/collision_system.c\n)\n\n# Lua bindings (optional)\nif(ENABLE_LUA_BINDINGS)\n    list(APPEND ENGINE_CORE_SOURCES\n        bindings/lua_engine.c\n        bindings/lua_gameobject.c\n        bindings/lua_components.c\n        bindings/lua_scene.c\n        bindings/lua_math.c\n    )\nendif()\n\n# Create engine library\nadd_library(playdate-engine ${ENGINE_CORE_SOURCES})\n\n# Compiler flags\ntarget_compile_options(playdate-engine PRIVATE ${ENGINE_C_FLAGS})\n\n# Include directories\ntarget_include_directories(playdate-engine\n    PUBLIC\n        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>\n        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>\n        $<INSTALL_INTERFACE:include>\n    PRIVATE\n        ${CMAKE_CURRENT_SOURCE_DIR}\n)\n\n# Link Lua if enabled\nif(ENABLE_LUA_BINDINGS)\n    find_package(Lua REQUIRED)\n    target_link_libraries(playdate-engine PRIVATE ${LUA_LIBRARIES})\n    target_include_directories(playdate-engine PRIVATE ${LUA_INCLUDE_DIR})\nendif()\n\n# Platform-specific libraries\nif(PLAYDATE_TARGET STREQUAL \"simulator\")\n    if(PLAYDATE_PLATFORM STREQUAL \"Mac\")\n        find_library(CORE_FOUNDATION CoreFoundation)\n        target_link_libraries(playdate-engine PRIVATE ${CORE_FOUNDATION})\n    endif()\nendif()\n\n# Installation\ninstall(TARGETS playdate-engine\n    EXPORT PlaydateEngineTargets\n    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}\n    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}\n    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}\n)\n\n# Export targets\ninstall(EXPORT PlaydateEngineTargets\n    FILE PlaydateEngineTargets.cmake\n    NAMESPACE PlaydateEngine::\n    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/PlaydateEngine\n)\n```\n\n### Step 4: Testing Configuration\n\n```cmake\n# cmake/Testing.cmake\n\n# Testing configuration module\n\nif(ENABLE_TESTING)\n    # Find testing framework (using minimal built-in testing)\n    \n    # Test configuration\n    set(CMAKE_CTEST_ARGUMENTS \"--output-on-failure\")\n    \n    # Custom test runner\n    function(add_engine_test TEST_NAME)\n        cmake_parse_arguments(ENGINE_TEST\n            \"\" # No boolean options\n            \"\" # No single value options\n            \"SOURCES;LIBRARIES\" # Multi-value options\n            ${ARGN}\n        )\n        \n        # Create test executable\n        add_executable(${TEST_NAME} ${ENGINE_TEST_SOURCES})\n        \n        # Link engine and test libraries\n        target_link_libraries(${TEST_NAME}\n            playdate-engine\n            ${ENGINE_TEST_LIBRARIES}\n        )\n        \n        # Compiler flags\n        target_compile_options(${TEST_NAME} PRIVATE ${ENGINE_C_FLAGS})\n        \n        # Add to CTest\n        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})\n        \n        # Set test properties\n        set_tests_properties(${TEST_NAME} PROPERTIES\n            TIMEOUT 30\n            FAIL_REGULAR_EXPRESSION \"FAILED|ERROR\"\n        )\n        \n    endfunction()\n    \n    # Performance benchmark function\n    function(add_engine_benchmark BENCHMARK_NAME)\n        cmake_parse_arguments(ENGINE_BENCHMARK\n            \"\" # No boolean options\n            \"\" # No single value options\n            \"SOURCES;LIBRARIES\" # Multi-value options\n            ${ARGN}\n        )\n        \n        # Create benchmark executable\n        add_executable(${BENCHMARK_NAME} ${ENGINE_BENCHMARK_SOURCES})\n        \n        # Link libraries\n        target_link_libraries(${BENCHMARK_NAME}\n            playdate-engine\n            ${ENGINE_BENCHMARK_LIBRARIES}\n        )\n        \n        # Compiler flags with optimization\n        target_compile_options(${BENCHMARK_NAME} PRIVATE ${ENGINE_C_FLAGS} -O3)\n        \n        # Add as test but with longer timeout\n        add_test(NAME ${BENCHMARK_NAME} COMMAND ${BENCHMARK_NAME})\n        set_tests_properties(${BENCHMARK_NAME} PROPERTIES\n            TIMEOUT 120\n            LABELS \"benchmark\"\n        )\n        \n    endfunction()\n    \nendif()\n```\n\n### Step 5: Build Scripts\n\n```bash\n#!/bin/bash\n# scripts/build.sh - Unix build script\n\nset -e\n\n# Configuration\nBUILD_TYPE=\"Debug\"\nPLAYDATE_TARGET=\"simulator\"\nENABLE_LUA=\"ON\"\nENABLE_TESTING=\"ON\"\nCLEAN_BUILD=\"false\"\n\n# Parse command line arguments\nwhile [[ $# -gt 0 ]]; do\n    case $1 in\n        --release)\n            BUILD_TYPE=\"Release\"\n            shift\n            ;;\n        --device)\n            PLAYDATE_TARGET=\"device\"\n            shift\n            ;;\n        --no-lua)\n            ENABLE_LUA=\"OFF\"\n            shift\n            ;;\n        --no-tests)\n            ENABLE_TESTING=\"OFF\"\n            shift\n            ;;\n        --clean)\n            CLEAN_BUILD=\"true\"\n            shift\n            ;;\n        --help)\n            echo \"Usage: $0 [options]\"\n            echo \"Options:\"\n            echo \"  --release      Build in Release mode (default: Debug)\"\n            echo \"  --device       Build for Playdate device (default: simulator)\"\n            echo \"  --no-lua       Disable Lua bindings\"\n            echo \"  --no-tests     Disable testing\"\n            echo \"  --clean        Clean build directory before building\"\n            echo \"  --help         Show this help message\"\n            exit 0\n            ;;\n        *)\n            echo \"Unknown option: $1\"\n            exit 1\n            ;;\n    esac\ndone\n\n# Build directory\nBUILD_DIR=\"build/${PLAYDATE_TARGET}-${BUILD_TYPE}\"\n\necho \"Building Playdate Engine...\"\necho \"  Build Type: $BUILD_TYPE\"\necho \"  Target: $PLAYDATE_TARGET\"\necho \"  Lua Bindings: $ENABLE_LUA\"\necho \"  Testing: $ENABLE_TESTING\"\necho \"  Build Directory: $BUILD_DIR\"\n\n# Clean build if requested\nif [ \"$CLEAN_BUILD\" = \"true\" ]; then\n    echo \"Cleaning build directory...\"\n    rm -rf \"$BUILD_DIR\"\nfi\n\n# Create build directory\nmkdir -p \"$BUILD_DIR\"\ncd \"$BUILD_DIR\"\n\n# Run CMake\necho \"Configuring with CMake...\"\ncmake \\\n    -DCMAKE_BUILD_TYPE=\"$BUILD_TYPE\" \\\n    -DPLAYDATE_TARGET=\"$PLAYDATE_TARGET\" \\\n    -DENABLE_LUA_BINDINGS=\"$ENABLE_LUA\" \\\n    -DENABLE_TESTING=\"$ENABLE_TESTING\" \\\n    ../..\n\n# Build\necho \"Building...\"\ncmake --build . --parallel $(nproc 2>/dev/null || echo 4)\n\n# Run tests if enabled\nif [ \"$ENABLE_TESTING\" = \"ON\" ]; then\n    echo \"Running tests...\"\n    ctest --output-on-failure\nfi\n\necho \"Build completed successfully!\"\necho \"Binaries are in: $BUILD_DIR\"\n```\n\n### Step 6: Example Project Configuration\n\n```cmake\n# examples/CMakeLists.txt\n\n# Example projects\n\nif(ENABLE_EXAMPLES)\n    \n    # Basic example\n    add_playdate_game(basic_example\n        SOURCES basic_example/main.c\n        ASSETS_DIR basic_example/assets\n    )\n    \n    # Platformer example\n    add_playdate_game(platformer_example\n        SOURCES \n            platformer_example/main.c\n            platformer_example/player.c\n            platformer_example/level.c\n        ASSETS_DIR platformer_example/assets\n    )\n    \n    # Lua scripted example (if Lua enabled)\n    if(ENABLE_LUA_BINDINGS)\n        add_playdate_game(lua_example\n            SOURCES lua_example/main.c\n            ASSETS_DIR lua_example/assets\n        )\n    endif()\n    \nendif()\n```\n\n## Unit Tests\n\n### Build System Tests\n\n```bash\n#!/bin/bash\n# tests/build/test_build_system.sh\n\nset -e\n\necho \"Testing build system...\"\n\n# Test basic build\necho \"Testing basic build...\"\n./scripts/build.sh --clean\n\n# Test release build\necho \"Testing release build...\"\n./scripts/build.sh --release --clean\n\n# Test device build (if toolchain available)\nif command -v arm-none-eabi-gcc &> /dev/null; then\n    echo \"Testing device build...\"\n    ./scripts/build.sh --device --clean\nfi\n\n# Test without Lua\necho \"Testing build without Lua...\"\n./scripts/build.sh --no-lua --clean\n\n# Test without tests\necho \"Testing build without tests...\"\n./scripts/build.sh --no-tests --clean\n\necho \"All build tests passed!\"\n```\n\n### CMake Configuration Tests\n\n```cmake\n# tests/cmake/test_configuration.cmake\n\n# Test CMake configuration\n\n# Test required variables\nif(NOT DEFINED PLAYDATE_SDK_PATH)\n    message(FATAL_ERROR \"PLAYDATE_SDK_PATH not defined\")\nendif()\n\nif(NOT EXISTS \"${PLAYDATE_SDK_PATH}/C_API/pd_api.h\")\n    message(FATAL_ERROR \"Playdate SDK not found\")\nendif()\n\n# Test build types\nset(VALID_BUILD_TYPES \"Debug\" \"Release\" \"RelWithDebInfo\" \"MinSizeRel\")\nif(NOT CMAKE_BUILD_TYPE IN_LIST VALID_BUILD_TYPES)\n    message(FATAL_ERROR \"Invalid build type: ${CMAKE_BUILD_TYPE}\")\nendif()\n\n# Test target platforms\nset(VALID_TARGETS \"simulator\" \"device\")\nif(NOT PLAYDATE_TARGET IN_LIST VALID_TARGETS)\n    message(FATAL_ERROR \"Invalid target: ${PLAYDATE_TARGET}\")\nendif()\n\nmessage(STATUS \"CMake configuration tests passed\")\n```\n\n## Integration Points\n\n### All Previous Phases\n- Build system compiles and links all engine components\n- Automated testing runs all unit tests and benchmarks\n- Asset pipeline processes game assets\n- Cross-platform support for development workflows\n\n## Build Targets\n\n### Library Targets\n- **playdate-engine**: Core engine library\n- **playdate-engine-lua**: Engine with Lua bindings\n- **playdate-engine-static**: Static library version\n\n### Executable Targets\n- **examples**: All example projects\n- **tests**: All unit tests and benchmarks\n- **tools**: Development tools and utilities\n\n### Custom Targets\n- **install**: Install engine libraries and headers\n- **package**: Create distribution packages\n- **docs**: Generate documentation\n- **format**: Format source code\n\n## Testing Criteria\n\n### Build Test Requirements\n- ✅ Clean build from source\n- ✅ Debug and Release configurations\n- ✅ Simulator and Device targets\n- ✅ With and without Lua bindings\n- ✅ Cross-platform compatibility\n- ✅ Asset pipeline functionality\n\n### Integration Test Requirements\n- ✅ Example projects build successfully\n- ✅ Unit tests run and pass\n- ✅ Performance benchmarks execute\n- ✅ Installation and packaging work\n\n## Success Criteria\n\n### Functional Requirements\n- [ ] Complete CMake-based build system\n- [ ] Playdate SDK integration for both simulator and device\n- [ ] Cross-platform development support\n- [ ] Automated testing integration\n- [ ] Asset processing pipeline\n\n### Developer Experience\n- [ ] Simple build scripts for common workflows\n- [ ] Clear build configuration options\n- [ ] Helpful error messages for common issues\n- [ ] Fast incremental builds\n- [ ] Easy setup for new developers\n\n### Quality Requirements\n- [ ] Comprehensive build testing\n- [ ] Documentation for all build processes\n- [ ] Automated CI/CD integration ready\n- [ ] Package distribution support\n\n## Next Steps\n\nUpon completion of this phase:\n1. Verify all build configurations work correctly\n2. Test cross-platform compatibility\n3. Validate example project builds\n4. Proceed to Phase 10: Optimization implementation\n5. Begin implementing performance analysis and optimization tools\n\nThis phase provides the development infrastructure that enables efficient engine development, testing, and distribution across all supported platforms.
+#### Project Configuration
+
+```cmake
+# CMakeLists.txt
+cmake_minimum_required(VERSION 3.19)
+
+# Project configuration
+project(PlaydateEngine 
+    VERSION 1.0.0
+    DESCRIPTION "High-performance game development engine for Playdate"
+    LANGUAGES C CXX
+)
+
+# Set C standard
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+```
+
+#### Build Options
+
+```cmake
+# Build options
+option(ENABLE_LUA_BINDINGS "Enable Lua scripting support" ON)
+option(ENABLE_TESTING "Enable unit testing" ON)
+option(ENABLE_EXAMPLES "Build example projects" ON)
+option(ENABLE_PROFILING "Enable profiling support" OFF)
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+```
+
+#### Platform Detection
+
+```cmake
+# Platform detection
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(PLAYDATE_PLATFORM "Mac")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(PLAYDATE_PLATFORM "Windows")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(PLAYDATE_PLATFORM "Linux")
+else()
+    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
+endif()
+```
+
+#### SDK Path Configuration
+
+```cmake
+# Playdate SDK path configuration
+if(NOT DEFINED PLAYDATE_SDK_PATH)
+    if(DEFINED ENV{PLAYDATE_SDK_PATH})
+        set(PLAYDATE_SDK_PATH $ENV{PLAYDATE_SDK_PATH})
+    else()
+        # Try common default locations
+        if(PLAYDATE_PLATFORM STREQUAL "Mac")
+            set(PLAYDATE_SDK_PATH "/Users/matheusmortatti/Playdate")
+        elseif(PLAYDATE_PLATFORM STREQUAL "Windows")
+            set(PLAYDATE_SDK_PATH "C:/Users/$ENV{USERNAME}/Documents/PlaydateSDK")
+        endif()
+    endif()
+endif()
+
+# Validate Playdate SDK
+if(NOT EXISTS "${PLAYDATE_SDK_PATH}/C_API/pd_api.h")
+    message(FATAL_ERROR "Playdate SDK not found at: ${PLAYDATE_SDK_PATH}")
+endif()
+
+message(STATUS "Using Playdate SDK: ${PLAYDATE_SDK_PATH}")
+```
+
+#### Compiler Configuration
+
+```cmake
+# Include CMake modules
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(PlaydateSDK)
+include(Testing)
+include(Assets)
+
+# Compiler flags
+if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    set(ENGINE_C_FLAGS
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wno-unused-parameter
+        -ffast-math
+    )
+    
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        list(APPEND ENGINE_C_FLAGS -g -O0 -DDEBUG=1)
+    elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+        list(APPEND ENGINE_C_FLAGS -O3 -DNDEBUG=1 -flto)
+    endif()
+endif()
+```
+
+#### Global Configuration
+
+```cmake
+# Global definitions
+add_compile_definitions(
+    ENGINE_VERSION="${PROJECT_VERSION}"
+    PLAYDATE_SDK_PATH="${PLAYDATE_SDK_PATH}"
+)
+
+if(ENABLE_LUA_BINDINGS)
+    add_compile_definitions(ENABLE_LUA_BINDINGS=1)
+endif()
+
+# Include directories
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${PLAYDATE_SDK_PATH}/C_API
+)
+
+# Subdirectories
+add_subdirectory(src)
+
+if(ENABLE_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+if(ENABLE_EXAMPLES)
+    add_subdirectory(examples)
+endif()
+
+# Installation configuration
+include(GNUInstallDirs)
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY lua/ DESTINATION ${CMAKE_INSTALL_DATADIR}/playdate-engine/lua)
+
+# Package configuration
+include(Packaging)
+```
+
+### Step 2: Playdate SDK Integration
+
+#### SDK Detection and Configuration
+
+```cmake
+# cmake/PlaydateSDK.cmake
+
+# Playdate SDK integration module
+
+# Find Playdate toolchain
+if(PLAYDATE_PLATFORM STREQUAL "Mac")
+    set(PLAYDATE_C_COMPILER "${PLAYDATE_SDK_PATH}/bin/gcc-arm-none-eabi")
+    set(PLAYDATE_SIMULATOR_COMPILER "clang")
+elseif(PLAYDATE_PLATFORM STREQUAL "Windows")
+    set(PLAYDATE_C_COMPILER "${PLAYDATE_SDK_PATH}/bin/gcc-arm-none-eabi.exe")
+    set(PLAYDATE_SIMULATOR_COMPILER "clang")
+else()
+    message(FATAL_ERROR "Unsupported platform for Playdate development")
+endif()
+
+# Target type selection
+if(NOT DEFINED PLAYDATE_TARGET)
+    set(PLAYDATE_TARGET "simulator" CACHE STRING "Build target: simulator or device")
+endif()
+
+set_property(CACHE PLAYDATE_TARGET PROPERTY STRINGS "simulator" "device")
+```
+
+#### Device Build Configuration
+
+```cmake
+# Compiler and flags configuration
+if(PLAYDATE_TARGET STREQUAL "device")
+    # Device build configuration
+    set(CMAKE_SYSTEM_NAME Generic)
+    set(CMAKE_SYSTEM_PROCESSOR arm)
+    set(CMAKE_C_COMPILER ${PLAYDATE_C_COMPILER})
+    set(CMAKE_CXX_COMPILER ${PLAYDATE_C_COMPILER})
+    
+    set(PLAYDATE_DEVICE_FLAGS
+        -mcpu=cortex-m7
+        -mthumb
+        -mfpu=fpv5-sp-d16
+        -mfloat-abi=hard
+        -D__FPU_USED=1
+        -DTARGET_PLAYDATE=1
+        -DTARGET_EXTENSION=1
+    )
+    
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${PLAYDATE_DEVICE_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -nostartfiles")
+```
+
+#### Simulator Build Configuration
+
+```cmake
+else()
+    # Simulator build configuration
+    set(CMAKE_C_COMPILER ${PLAYDATE_SIMULATOR_COMPILER})
+    set(CMAKE_CXX_COMPILER ${PLAYDATE_SIMULATOR_COMPILER})
+    
+    set(PLAYDATE_SIMULATOR_FLAGS
+        -DTARGET_SIMULATOR=1
+    )
+    
+    if(PLAYDATE_PLATFORM STREQUAL "Mac")
+        list(APPEND PLAYDATE_SIMULATOR_FLAGS -arch x86_64 -arch arm64)
+    endif()
+    
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${PLAYDATE_SIMULATOR_FLAGS}")
+endif()
+```
+
+#### Game Creation Function
+
+```cmake
+# Playdate library target
+function(add_playdate_game TARGET_NAME)
+    cmake_parse_arguments(PLAYDATE_GAME
+        "" # No boolean options
+        "SOURCE_DIR;ASSETS_DIR;OUTPUT_NAME" # Single value options
+        "SOURCES;LIBRARIES;INCLUDE_DIRS" # Multi-value options
+        ${ARGN}
+    )
+    
+    # Set defaults
+    if(NOT PLAYDATE_GAME_SOURCE_DIR)
+        set(PLAYDATE_GAME_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+    endif()
+    
+    if(NOT PLAYDATE_GAME_OUTPUT_NAME)
+        set(PLAYDATE_GAME_OUTPUT_NAME ${TARGET_NAME})
+    endif()
+    
+    # Create executable target
+    add_executable(${TARGET_NAME} ${PLAYDATE_GAME_SOURCES})
+    
+    # Link libraries
+    target_link_libraries(${TARGET_NAME} 
+        playdate-engine
+        ${PLAYDATE_GAME_LIBRARIES}
+    )
+    
+    # Include directories
+    if(PLAYDATE_GAME_INCLUDE_DIRS)
+        target_include_directories(${TARGET_NAME} PRIVATE ${PLAYDATE_GAME_INCLUDE_DIRS})
+    endif()
+```
+
+#### Platform-Specific Linking
+
+```cmake
+    # Platform-specific configuration
+    if(PLAYDATE_TARGET STREQUAL "device")
+        # Device-specific linking
+        target_link_libraries(${TARGET_NAME} 
+            "${PLAYDATE_SDK_PATH}/C_API/buildsupport/setup.c"
+        )
+        
+        set_target_properties(${TARGET_NAME} PROPERTIES
+            SUFFIX ".elf"
+            LINK_FLAGS "-T${PLAYDATE_SDK_PATH}/C_API/buildsupport/link_map.ld"
+        )
+        
+    else()
+        # Simulator-specific linking
+        if(PLAYDATE_PLATFORM STREQUAL "Mac")
+            target_link_libraries(${TARGET_NAME} 
+                "-framework CoreFoundation"
+                "-framework CoreGraphics"
+                "-framework CoreText"
+                "-framework Foundation"
+            )
+            
+            set_target_properties(${TARGET_NAME} PROPERTIES
+                SUFFIX ".dylib"
+                BUNDLE TRUE
+            )
+        endif()
+    endif()
+    
+    # Asset processing
+    if(PLAYDATE_GAME_ASSETS_DIR)
+        process_playdate_assets(${TARGET_NAME} ${PLAYDATE_GAME_ASSETS_DIR})
+    endif()
+    
+endfunction()
+```
+
+#### Asset Processing
+
+```cmake
+# Asset processing function
+function(process_playdate_assets TARGET_NAME ASSETS_DIR)
+    if(NOT EXISTS ${ASSETS_DIR})
+        message(WARNING "Assets directory not found: ${ASSETS_DIR}")
+        return()
+    endif()
+    
+    # Find all asset files
+    file(GLOB_RECURSE ASSET_FILES 
+        "${ASSETS_DIR}/*.png"
+        "${ASSETS_DIR}/*.wav"
+        "${ASSETS_DIR}/*.aiff"
+        "${ASSETS_DIR}/*.fnt"
+        "${ASSETS_DIR}/*.lua"
+    )
+    
+    # Process each asset
+    foreach(ASSET_FILE ${ASSET_FILES})
+        get_filename_component(ASSET_NAME ${ASSET_FILE} NAME)
+        
+        # Copy to build directory
+        configure_file(${ASSET_FILE} 
+            "${CMAKE_CURRENT_BINARY_DIR}/assets/${ASSET_NAME}"
+            COPYONLY
+        )
+    endforeach()
+    
+endfunction()
+```
+
+### Step 3: Source Code Build Configuration
+
+#### Engine Library Configuration
+
+```cmake
+# src/CMakeLists.txt
+
+# Engine core library
+set(ENGINE_CORE_SOURCES
+    core/memory_pool.c
+    core/component.c
+    core/component_registry.c
+    core/game_object.c
+    core/scene.c
+    core/transform_component.c
+    
+    systems/spatial_grid.c
+    systems/update_systems.c
+    
+    components/sprite_component.c
+    components/collision_component.c
+    
+    physics/aabb.c
+    physics/collision_system.c
+)
+
+# Lua bindings (optional)
+if(ENABLE_LUA_BINDINGS)
+    list(APPEND ENGINE_CORE_SOURCES
+        bindings/lua_engine.c
+        bindings/lua_gameobject.c
+        bindings/lua_components.c
+        bindings/lua_scene.c
+        bindings/lua_math.c
+    )
+endif()
+
+# Create engine library
+add_library(playdate-engine ${ENGINE_CORE_SOURCES})
+```
+
+#### Compilation Configuration
+
+```cmake
+# Compiler flags
+target_compile_options(playdate-engine PRIVATE ${ENGINE_C_FLAGS})
+
+# Include directories
+target_include_directories(playdate-engine
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Link Lua if enabled
+if(ENABLE_LUA_BINDINGS)
+    find_package(Lua REQUIRED)
+    target_link_libraries(playdate-engine PRIVATE ${LUA_LIBRARIES})
+    target_include_directories(playdate-engine PRIVATE ${LUA_INCLUDE_DIR})
+endif()
+```
+
+#### Platform-Specific Libraries
+
+```cmake
+# Platform-specific libraries
+if(PLAYDATE_TARGET STREQUAL "simulator")
+    if(PLAYDATE_PLATFORM STREQUAL "Mac")
+        find_library(CORE_FOUNDATION CoreFoundation)
+        target_link_libraries(playdate-engine PRIVATE ${CORE_FOUNDATION})
+    endif()
+endif()
+
+# Installation
+install(TARGETS playdate-engine
+    EXPORT PlaydateEngineTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Export targets
+install(EXPORT PlaydateEngineTargets
+    FILE PlaydateEngineTargets.cmake
+    NAMESPACE PlaydateEngine::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/PlaydateEngine
+)
+```
+
+### Step 4: Testing Configuration
+
+#### Testing Module
+
+```cmake
+# cmake/Testing.cmake
+
+# Testing configuration module
+
+if(ENABLE_TESTING)
+    # Find testing framework (using minimal built-in testing)
+    
+    # Test configuration
+    set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
+    
+    # Custom test runner
+    function(add_engine_test TEST_NAME)
+        cmake_parse_arguments(ENGINE_TEST
+            "" # No boolean options
+            "" # No single value options
+            "SOURCES;LIBRARIES" # Multi-value options
+            ${ARGN}
+        )
+        
+        # Create test executable
+        add_executable(${TEST_NAME} ${ENGINE_TEST_SOURCES})
+        
+        # Link engine and test libraries
+        target_link_libraries(${TEST_NAME}
+            playdate-engine
+            ${ENGINE_TEST_LIBRARIES}
+        )
+        
+        # Compiler flags
+        target_compile_options(${TEST_NAME} PRIVATE ${ENGINE_C_FLAGS})
+        
+        # Add to CTest
+        add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+        
+        # Set test properties
+        set_tests_properties(${TEST_NAME} PROPERTIES
+            TIMEOUT 30
+            FAIL_REGULAR_EXPRESSION "FAILED|ERROR"
+        )
+        
+    endfunction()
+```
+
+#### Performance Benchmark Function
+
+```cmake
+    # Performance benchmark function
+    function(add_engine_benchmark BENCHMARK_NAME)
+        cmake_parse_arguments(ENGINE_BENCHMARK
+            "" # No boolean options
+            "" # No single value options
+            "SOURCES;LIBRARIES" # Multi-value options
+            ${ARGN}
+        )
+        
+        # Create benchmark executable
+        add_executable(${BENCHMARK_NAME} ${ENGINE_BENCHMARK_SOURCES})
+        
+        # Link libraries
+        target_link_libraries(${BENCHMARK_NAME}
+            playdate-engine
+            ${ENGINE_BENCHMARK_LIBRARIES}
+        )
+        
+        # Compiler flags with optimization
+        target_compile_options(${BENCHMARK_NAME} PRIVATE ${ENGINE_C_FLAGS} -O3)
+        
+        # Add as test but with longer timeout
+        add_test(NAME ${BENCHMARK_NAME} COMMAND ${BENCHMARK_NAME})
+        set_tests_properties(${BENCHMARK_NAME} PROPERTIES
+            TIMEOUT 120
+            LABELS "benchmark"
+        )
+        
+    endfunction()
+    
+endif()
+```
+
+### Step 5: Build Scripts
+
+#### Unix Build Script
+
+```bash
+#!/bin/bash
+# scripts/build.sh - Unix build script
+
+set -e
+
+# Configuration
+BUILD_TYPE="Debug"
+PLAYDATE_TARGET="simulator"
+ENABLE_LUA="ON"
+ENABLE_TESTING="ON"
+CLEAN_BUILD="false"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --release)
+            BUILD_TYPE="Release"
+            shift
+            ;;
+        --device)
+            PLAYDATE_TARGET="device"
+            shift
+            ;;
+        --no-lua)
+            ENABLE_LUA="OFF"
+            shift
+            ;;
+        --no-tests)
+            ENABLE_TESTING="OFF"
+            shift
+            ;;
+        --clean)
+            CLEAN_BUILD="true"
+            shift
+            ;;
+        --help)
+            echo "Usage: $0 [options]"
+            echo "Options:"
+            echo "  --release      Build in Release mode (default: Debug)"
+            echo "  --device       Build for Playdate device (default: simulator)"
+            echo "  --no-lua       Disable Lua bindings"
+            echo "  --no-tests     Disable testing"
+            echo "  --clean        Clean build directory before building"
+            echo "  --help         Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Build directory
+BUILD_DIR="build/${PLAYDATE_TARGET}-${BUILD_TYPE}"
+
+echo "Building Playdate Engine..."
+echo "  Build Type: $BUILD_TYPE"
+echo "  Target: $PLAYDATE_TARGET"
+echo "  Lua Bindings: $ENABLE_LUA"
+echo "  Testing: $ENABLE_TESTING"
+echo "  Build Directory: $BUILD_DIR"
+
+# Clean build if requested
+if [ "$CLEAN_BUILD" = "true" ]; then
+    echo "Cleaning build directory..."
+    rm -rf "$BUILD_DIR"
+fi
+
+# Create build directory
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+```
+
+#### CMake Configuration and Build
+
+```bash
+# Run CMake
+echo "Configuring with CMake..."
+cmake \
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DPLAYDATE_TARGET="$PLAYDATE_TARGET" \
+    -DENABLE_LUA_BINDINGS="$ENABLE_LUA" \
+    -DENABLE_TESTING="$ENABLE_TESTING" \
+    ../..
+
+# Build
+echo "Building..."
+cmake --build . --parallel $(nproc 2>/dev/null || echo 4)
+
+# Run tests if enabled
+if [ "$ENABLE_TESTING" = "ON" ]; then
+    echo "Running tests..."
+    ctest --output-on-failure
+fi
+
+echo "Build completed successfully!"
+echo "Binaries are in: $BUILD_DIR"
+```
+
+### Step 6: Example Project Configuration
+
+#### Examples CMakeLists
+
+```cmake
+# examples/CMakeLists.txt
+
+# Example projects
+
+if(ENABLE_EXAMPLES)
+    
+    # Basic example
+    add_playdate_game(basic_example
+        SOURCES basic_example/main.c
+        ASSETS_DIR basic_example/assets
+    )
+    
+    # Platformer example
+    add_playdate_game(platformer_example
+        SOURCES 
+            platformer_example/main.c
+            platformer_example/player.c
+            platformer_example/level.c
+        ASSETS_DIR platformer_example/assets
+    )
+    
+    # Lua scripted example (if Lua enabled)
+    if(ENABLE_LUA_BINDINGS)
+        add_playdate_game(lua_example
+            SOURCES lua_example/main.c
+            ASSETS_DIR lua_example/assets
+        )
+    endif()
+    
+endif()
+```
+
+## Unit Tests
+
+### Build System Tests
+
+#### Build System Validation Script
+
+```bash
+#!/bin/bash
+# tests/build/test_build_system.sh
+
+set -e
+
+echo "Testing build system..."
+
+# Test basic build
+echo "Testing basic build..."
+./scripts/build.sh --clean
+
+# Test release build
+echo "Testing release build..."
+./scripts/build.sh --release --clean
+
+# Test device build (if toolchain available)
+if command -v arm-none-eabi-gcc &> /dev/null; then
+    echo "Testing device build..."
+    ./scripts/build.sh --device --clean
+fi
+
+# Test without Lua
+echo "Testing build without Lua..."
+./scripts/build.sh --no-lua --clean
+
+# Test without tests
+echo "Testing build without tests..."
+./scripts/build.sh --no-tests --clean
+
+echo "All build tests passed!"
+```
+
+### CMake Configuration Tests
+
+```cmake
+# tests/cmake/test_configuration.cmake
+
+# Test CMake configuration
+
+# Test required variables
+if(NOT DEFINED PLAYDATE_SDK_PATH)
+    message(FATAL_ERROR "PLAYDATE_SDK_PATH not defined")
+endif()
+
+if(NOT EXISTS "${PLAYDATE_SDK_PATH}/C_API/pd_api.h")
+    message(FATAL_ERROR "Playdate SDK not found")
+endif()
+
+# Test build types
+set(VALID_BUILD_TYPES "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+if(NOT CMAKE_BUILD_TYPE IN_LIST VALID_BUILD_TYPES)
+    message(FATAL_ERROR "Invalid build type: ${CMAKE_BUILD_TYPE}")
+endif()
+
+# Test target platforms
+set(VALID_TARGETS "simulator" "device")
+if(NOT PLAYDATE_TARGET IN_LIST VALID_TARGETS)
+    message(FATAL_ERROR "Invalid target: ${PLAYDATE_TARGET}")
+endif()
+
+message(STATUS "CMake configuration tests passed")
+```
+
+## Integration Points
+
+### All Previous Phases
+- Build system compiles and links all engine components
+- Automated testing runs all unit tests and benchmarks
+- Asset pipeline processes game assets
+- Cross-platform support for development workflows
+
+## Build Targets
+
+### Library Targets
+- **playdate-engine**: Core engine library
+- **playdate-engine-lua**: Engine with Lua bindings
+- **playdate-engine-static**: Static library version
+
+### Executable Targets
+- **examples**: All example projects
+- **tests**: All unit tests and benchmarks
+- **tools**: Development tools and utilities
+
+### Custom Targets
+- **install**: Install engine libraries and headers
+- **package**: Create distribution packages
+- **docs**: Generate documentation
+- **format**: Format source code
+
+## Testing Criteria
+
+### Build Test Requirements
+- ✅ Clean build from source
+- ✅ Debug and Release configurations
+- ✅ Simulator and Device targets
+- ✅ With and without Lua bindings
+- ✅ Cross-platform compatibility
+- ✅ Asset pipeline functionality
+
+### Integration Test Requirements
+- ✅ Example projects build successfully
+- ✅ Unit tests run and pass
+- ✅ Performance benchmarks execute
+- ✅ Installation and packaging work
+
+## Success Criteria
+
+### Functional Requirements
+- [ ] Complete CMake-based build system
+- [ ] Playdate SDK integration for both simulator and device
+- [ ] Cross-platform development support
+- [ ] Automated testing integration
+- [ ] Asset processing pipeline
+
+### Developer Experience
+- [ ] Simple build scripts for common workflows
+- [ ] Clear build configuration options
+- [ ] Helpful error messages for common issues
+- [ ] Fast incremental builds
+- [ ] Easy setup for new developers
+
+### Quality Requirements
+- [ ] Comprehensive build testing
+- [ ] Documentation for all build processes
+- [ ] Automated CI/CD integration ready
+- [ ] Package distribution support
+
+## Next Steps
+
+Upon completion of this phase:
+1. Verify all build configurations work correctly
+2. Test cross-platform compatibility
+3. Validate example project builds
+4. Proceed to Phase 10: Optimization implementation
+5. Begin implementing performance analysis and optimization tools
+
+This phase provides the development infrastructure that enables efficient engine development, testing, and distribution across all supported platforms.

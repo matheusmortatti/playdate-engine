@@ -115,6 +115,198 @@ level:render()
 - Tile-based pathfinding integration
 - Dynamic tile modification at runtime
 
+## Hardware Architecture
+
+### ARM Cortex-M7 Processor
+
+The Playdate console is powered by a **168 MHz ARM Cortex-M7 processor**, the highest-performance member of the energy-efficient Cortex-M processor family. Understanding the hardware architecture is crucial for optimizing game performance.
+
+#### Core Specifications
+
+**Performance Metrics:**
+- **Clock Speed**: 168 MHz
+- **Performance**: 2.14 DMIPS/MHz, 5.29 CoreMark/MHz
+- **Architecture**: 6-stage superscalar dual-issue pipeline
+- **Pipeline**: Harvard architecture with separate instruction and data buses
+
+**Advanced Features:**
+- **Branch Prediction**: Enhanced branch prediction unit with Branch Target Address Cache (BTAC)
+- **Floating-Point Unit**: Hardware single-precision FPU (VFPv5) with 10x acceleration
+- **DSP Extensions**: SIMD processing, saturation arithmetic, single-cycle MAC instructions
+- **Dual Issue**: Can execute two instructions per clock cycle under optimal conditions
+
+#### Memory System Architecture
+
+**System Memory:**
+- **RAM**: 16 MB total system memory
+- **Flash Storage**: 4 GB for game assets and code
+- **L1 Cache**: 8 KB split between instruction and data caches
+
+**Cache Configuration:**
+```
+Instruction Cache (I-Cache):
+- Size: 4 KB (configurable 0-64 KB)
+- Associativity: 2-way set-associative
+- Line Size: 32 bytes (8 words)
+- Policy: Read-only, direct-mapped from flash
+
+Data Cache (D-Cache):
+- Size: 4 KB (configurable 0-64 KB) 
+- Associativity: 4-way set-associative
+- Line Size: 32 bytes (8 words)
+- Policy: Write-back with write-allocate
+```
+
+**Tightly Coupled Memory (TCM):**
+- **Instruction TCM**: 0-16 MB, zero-wait state access
+- **Data TCM**: 0-16 MB, zero-wait state access
+- **Purpose**: Critical code and data placement for guaranteed performance
+
+#### Bus Architecture
+
+**High-Performance Interfaces:**
+- **64-bit AMBA4 AXI**: High-bandwidth external memory and peripherals
+- **32-bit AHB**: Peripheral bus for system components
+- **32-bit AHB Slave**: External master access to TCMs
+- **AMBA APB**: Debug and trace components
+
+### Performance Optimization Guidelines
+
+#### Cache-Aware Programming
+
+**Instruction Cache Optimization:**
+```c
+// Group related functions together for better I-cache utilization
+// Place frequently called functions in the same compilation unit
+static inline void hot_function_group() {
+    // Keep hot code paths together
+    update_sprites();
+    process_input();
+    update_physics();
+}
+```
+
+**Data Cache Optimization:**
+```c
+// Structure data for cache line efficiency (32-byte aligned)
+typedef struct {
+    float position[2];    // 8 bytes
+    float velocity[2];    // 8 bytes  
+    uint32_t sprite_id;   // 4 bytes
+    uint32_t flags;       // 4 bytes
+    uint32_t padding[2];  // 8 bytes - pad to 32 bytes
+} GameObject;  // Total: 32 bytes = 1 cache line
+
+// Process data in cache-friendly patterns
+void update_gameobjects(GameObject* objects, int count) {
+    // Process all positions first (better cache locality)
+    for (int i = 0; i < count; i++) {
+        objects[i].position[0] += objects[i].velocity[0];
+        objects[i].position[1] += objects[i].velocity[1];
+    }
+}
+```
+
+#### ARM-Specific Optimizations
+
+**Use ARM Intrinsics:**
+```c
+#include <arm_neon.h>
+
+// Use built-in functions for optimal code generation
+uint32_t swap_bytes(uint32_t value) {
+    return __builtin_bswap32(value);  // Maps to REV instruction
+}
+
+// SIMD operations for batch processing
+void process_vectors_simd(float* a, float* b, float* result, int count) {
+    for (int i = 0; i < count; i += 4) {
+        float32x4_t va = vld1q_f32(&a[i]);
+        float32x4_t vb = vld1q_f32(&b[i]);
+        float32x4_t vr = vaddq_f32(va, vb);
+        vst1q_f32(&result[i], vr);
+    }
+}
+```
+
+**Fixed-Point Arithmetic:**
+```c
+// Use 16.16 fixed-point for better performance than floating-point
+typedef int32_t fixed_t;
+#define FIXED_SHIFT 16
+#define FIXED_ONE (1 << FIXED_SHIFT)
+
+fixed_t fixed_mul(fixed_t a, fixed_t b) {
+    return (int64_t)a * b >> FIXED_SHIFT;
+}
+
+fixed_t fixed_div(fixed_t a, fixed_t b) {
+    return ((int64_t)a << FIXED_SHIFT) / b;
+}
+```
+
+#### Memory Layout Optimization
+
+**TCM Placement Strategy:**
+```c
+// Place critical code in ITCM (if available)
+__attribute__((section(".itcm"))) 
+void critical_update_loop(void) {
+    // Zero-wait execution guaranteed
+}
+
+// Place frequently accessed data in DTCM
+__attribute__((section(".dtcm"))) 
+static GameObject active_objects[MAX_OBJECTS];
+```
+
+**Alignment Guidelines:**
+```c
+// Align structures to cache line boundaries
+#define CACHE_LINE_SIZE 32
+#define CACHE_ALIGNED __attribute__((aligned(CACHE_LINE_SIZE)))
+
+typedef struct CACHE_ALIGNED {
+    // Hot data accessed together
+    float position[2];
+    float velocity[2];
+    uint32_t flags;
+    // ... pad to 32 bytes
+} OptimizedGameObject;
+```
+
+#### Branch Prediction Optimization
+
+```c
+// Use likely/unlikely hints for better branch prediction
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
+void game_update(void) {
+    if (likely(game_state == RUNNING)) {
+        // Hot path - will be predicted correctly
+        update_gameplay();
+    } else if (unlikely(game_state == PAUSED)) {
+        // Cold path - rare execution
+        handle_pause_menu();
+    }
+}
+```
+
+### Hardware-Specific Build Flags
+
+**Compiler Optimizations:**
+```bash
+# ARM Cortex-M7 specific optimizations
+CFLAGS += -mcpu=cortex-m7
+CFLAGS += -mthumb
+CFLAGS += -mfpu=fpv5-sp-d16      # Single-precision FPU
+CFLAGS += -mfloat-abi=hard       # Hardware floating-point ABI
+CFLAGS += -ffast-math            # Aggressive FP optimizations
+CFLAGS += -funroll-loops         # Loop unrolling for performance
+CFLAGS += -finline-functions     # Aggressive inlining
+```
+
 ## Development Environment
 
 ### Playdate SDK Integration
@@ -430,13 +622,49 @@ make
 
 **Cross-Platform Targets:**
 ```bash
-# Simulator build (macOS)
-cmake .. -DTOOLCHAIN=clang
+# Simulator build (macOS) - For development and debugging
+cmake .. -DTOOLCHAIN=clang -DCMAKE_BUILD_TYPE=Debug
 make
 
-# Device build (ARM Cortex-M7)
-cmake .. -DTOOLCHAIN=armgcc
+# Device build (ARM Cortex-M7) - Optimized for Playdate hardware
+cmake .. -DTOOLCHAIN=armgcc -DCMAKE_BUILD_TYPE=Release \
+  -DCPU_TARGET=cortex-m7 \
+  -DFPU_TARGET=fpv5-sp-d16 \
+  -DENABLE_CACHE_OPTIMIZATION=ON
 make
+
+# Development device build with debug symbols
+cmake .. -DTOOLCHAIN=armgcc -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCPU_TARGET=cortex-m7 \
+  -DFPU_TARGET=fpv5-sp-d16
+make
+```
+
+**ARM-Specific Compiler Flags (automatically set by build system):**
+```bash
+# Core ARM Cortex-M7 flags
+-mcpu=cortex-m7           # Target Cortex-M7 specifically
+-mthumb                   # Use Thumb-2 instruction set
+-mfpu=fpv5-sp-d16        # Single-precision FPU
+-mfloat-abi=hard         # Hardware floating-point ABI
+
+# Performance optimizations
+-O3                       # Maximum optimization
+-ffast-math              # Aggressive floating-point optimizations
+-funroll-loops           # Unroll loops for performance
+-finline-functions       # Aggressive function inlining
+-fomit-frame-pointer     # Omit frame pointer for speed
+
+# ARM-specific optimizations
+-mslow-flash-data        # Optimize for slow flash access
+-ffunction-sections      # Enable function-level linking
+-fdata-sections          # Enable data-level linking
+-Wl,--gc-sections        # Remove unused sections
+
+# Cache and memory optimizations
+-falign-functions=32     # Align functions to cache line boundaries
+-falign-loops=32         # Align loops to cache lines
+-DCACHE_LINE_SIZE=32     # Define cache line size for code
 ```
 
 ### Asset Pipeline
@@ -546,10 +774,17 @@ This project is designed to grow with the Playdate development community. Contri
 - Clang (for simulator builds)
 
 **Memory Constraints:**
-- Device RAM: 16MB total
-- Recommended engine usage: <2MB
-- Object pools: Configurable size limits
-- Asset streaming: For large maps/sprites
+- **Device RAM**: 16MB total system memory
+- **Flash Storage**: 4GB for assets and game code
+- **Recommended engine usage**: <2MB core engine footprint
+- **L1 Cache**: 8KB total (4KB I-Cache + 4KB D-Cache)
+- **Cache Line Size**: 32 bytes (8 words) - critical for data alignment
+- **Object pools**: Configurable size limits, align to cache boundaries
+- **Asset streaming**: Essential for large maps/sprites due to limited RAM
+- **TCM Usage**: Reserve TCM space for performance-critical code and data
+- **Stack Size**: Typical 8KB, monitor for deep recursion or large local variables
+- **Heap Fragmentation**: Use object pools to minimize fragmentation in small RAM
+- **DMA Coherency**: Ensure cache coherency for DMA transfers (if applicable)
 
 ## Support
 
