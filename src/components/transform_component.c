@@ -24,7 +24,7 @@ static const ComponentVTable transformVTable = {
     .deserialize = NULL
 };
 
-// Simple 2D transformation matrix calculation (no scale for this implementation)
+// 2D transformation matrix calculation with scale support
 static void calculate_matrix(TransformComponent* transform, float* matrix) {  
     if (!transform || !matrix) return;
     
@@ -32,13 +32,16 @@ static void calculate_matrix(TransformComponent* transform, float* matrix) {
     float sin_r = sinf(transform->rotation);
     
     // 2D transformation matrix: [a, b, c, d, tx, ty]
-    // [cos, -sin, sin, cos, x, y] (no scale)
-    matrix[0] = cos_r;      // a
-    matrix[1] = -sin_r;     // b
-    matrix[2] = sin_r;      // c
-    matrix[3] = cos_r;      // d
-    matrix[4] = transform->x; // tx
-    matrix[5] = transform->y; // ty
+    // | a  c  tx |   | scaleX*cos  -scaleY*sin  x |
+    // | b  d  ty | = | scaleX*sin   scaleY*cos  y |
+    // | 0  0  1  |   |     0            0       1 |
+    
+    matrix[0] = transform->scaleX * cos_r;  // a
+    matrix[1] = transform->scaleX * sin_r;  // b
+    matrix[2] = -transform->scaleY * sin_r; // c
+    matrix[3] = transform->scaleY * cos_r;  // d
+    matrix[4] = transform->x;               // tx
+    matrix[5] = transform->y;               // ty
 }
 
 // VTable implementations
@@ -53,7 +56,14 @@ static void transform_init(Component* component, GameObject* gameObject) {
     transform->x = 0.0f;
     transform->y = 0.0f;
     transform->rotation = 0.0f;
+    transform->scaleX = 1.0f;
+    transform->scaleY = 1.0f;
     transform->matrixDirty = true;
+    
+    // Initialize matrix to identity
+    memset(transform->matrix, 0, sizeof(transform->matrix));
+    transform->matrix[0] = 1.0f; // a
+    transform->matrix[3] = 1.0f; // d
 }
 
 static void transform_destroy(Component* component) {
@@ -67,7 +77,10 @@ static void transform_destroy(Component* component) {
     transform->x = 0.0f;
     transform->y = 0.0f;
     transform->rotation = 0.0f;
+    transform->scaleX = 1.0f;
+    transform->scaleY = 1.0f;
     transform->matrixDirty = false;
+    memset(transform->matrix, 0, sizeof(transform->matrix));
     
     // Base component cleanup is handled by component_registry_destroy()
 }
@@ -153,27 +166,39 @@ void transform_component_rotate(TransformComponent* transform, float deltaRotati
 }
 
 void transform_component_set_scale(TransformComponent* transform, float scaleX, float scaleY) {
-    // Scale not supported in simplified implementation
-    (void)transform;
-    (void)scaleX;
-    (void)scaleY;
+    if (!transform) return;
+    
+    transform->scaleX = scaleX;
+    transform->scaleY = scaleY;
+    transform->matrixDirty = true;
 }
 
 void transform_component_get_scale(const TransformComponent* transform, float* scaleX, float* scaleY) {
-    (void)transform;
-    // Always return identity scale
-    if (scaleX) *scaleX = 1.0f;
-    if (scaleY) *scaleY = 1.0f;
+    if (!transform) {
+        if (scaleX) *scaleX = 1.0f;
+        if (scaleY) *scaleY = 1.0f;
+        return;
+    }
+    
+    if (scaleX) *scaleX = transform->scaleX;
+    if (scaleY) *scaleY = transform->scaleY;
 }
 
 const float* transform_component_get_matrix(TransformComponent* transform) {
     if (!transform) return NULL;
     
-    // Return static matrix buffer (not thread-safe, but engine is single-threaded)
-    static float matrix[6];
-    calculate_matrix(transform, matrix);
+    if (transform->matrixDirty) {
+        transform_component_calculate_matrix(transform);
+    }
+    
+    return transform->matrix;
+}
+
+void transform_component_calculate_matrix(TransformComponent* transform) {
+    if (!transform) return;
+    
+    calculate_matrix(transform, transform->matrix);
     transform->matrixDirty = false;
-    return matrix;
 }
 
 void transform_component_mark_dirty(TransformComponent* transform) {
@@ -195,21 +220,15 @@ void transform_component_look_at(TransformComponent* transform, float targetX, f
 void transform_component_transform_point(const TransformComponent* transform, 
                                        float localX, float localY, 
                                        float* worldX, float* worldY) {
-    if (!transform) {
-        if (worldX) *worldX = 0.0f;
-        if (worldY) *worldY = 0.0f;
-        return;
+    if (!transform || !worldX || !worldY) return;
+    
+    // Ensure matrix is up to date
+    if (transform->matrixDirty) {
+        transform_component_calculate_matrix((TransformComponent*)transform);
     }
     
-    // Calculate transformation directly (no scale support)
-    float cos_r = cosf(transform->rotation);
-    float sin_r = sinf(transform->rotation);
+    const float* m = transform->matrix;
     
-    float a = cos_r;
-    float b = -sin_r;
-    float c = sin_r;
-    float d = cos_r;
-    
-    if (worldX) *worldX = a * localX + b * localY + transform->x;
-    if (worldY) *worldY = c * localX + d * localY + transform->y;
+    *worldX = m[0] * localX + m[2] * localY + m[4];
+    *worldY = m[1] * localX + m[3] * localY + m[5];
 }

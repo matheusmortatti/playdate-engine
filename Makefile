@@ -17,20 +17,26 @@ MEMORY_TEST_SOURCES = $(CORE_TESTDIR)/test_memory_pool.c $(CORE_TESTDIR)/test_me
 COMPONENT_SOURCES = $(CORE_SRCDIR)/component.c $(CORE_SRCDIR)/component_registry.c $(COMPONENTS_SRCDIR)/transform_component.c $(COMPONENTS_SRCDIR)/component_factory.c
 COMPONENT_TEST_SOURCES = $(CORE_TESTDIR)/test_component.c $(CORE_TESTDIR)/test_component_registry.c $(CORE_TESTDIR)/test_component_perf.c $(COMPONENTS_TESTDIR)/test_transform.c $(COMPONENTS_TESTDIR)/test_component_factory.c $(CORE_TESTDIR)/test_component_runner.c
 
+# Phase 3: GameObject system sources
+GAMEOBJECT_SOURCES = $(CORE_SRCDIR)/game_object.c
+GAMEOBJECT_TEST_SOURCES = $(CORE_TESTDIR)/test_game_object.c $(CORE_TESTDIR)/test_gameobject_perf.c $(CORE_TESTDIR)/mock_scene.c $(CORE_TESTDIR)/test_gameobject_runner.c
+
 # Combined sources
-ALL_SOURCES = $(MEMORY_SOURCES) $(COMPONENT_SOURCES)
-ALL_TEST_SOURCES = $(MEMORY_TEST_SOURCES) $(COMPONENT_TEST_SOURCES)
+ALL_SOURCES = $(MEMORY_SOURCES) $(COMPONENT_SOURCES) $(GAMEOBJECT_SOURCES)
+ALL_TEST_SOURCES = $(MEMORY_TEST_SOURCES) $(COMPONENT_TEST_SOURCES) $(GAMEOBJECT_TEST_SOURCES)
 
 # Object files
 MEMORY_OBJECTS = $(MEMORY_SOURCES:.c=.o)
 COMPONENT_OBJECTS = $(COMPONENT_SOURCES:.c=.o)
+GAMEOBJECT_OBJECTS = $(GAMEOBJECT_SOURCES:.c=.o)
 ALL_OBJECTS = $(ALL_SOURCES:.c=.o)
 
 # Executables
 MEMORY_TEST_RUNNER = test_memory_system
 COMPONENT_TEST_RUNNER = test_component_system
+GAMEOBJECT_TEST_RUNNER = test_gameobject_system
 
-.PHONY: all clean test test-verbose test-memory test-components test-all
+.PHONY: all clean test test-verbose test-memory test-components test-gameobject test-all
 
 # Default target - run all tests
 all: test-all
@@ -49,8 +55,13 @@ test-components:
 	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(COMPONENT_TEST_SOURCES) -o $(COMPONENT_TEST_RUNNER)
 	./$(COMPONENT_TEST_RUNNER)
 
+# GameObject system tests (Phase 3)
+test-gameobject:
+	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(GAMEOBJECT_TEST_SOURCES) -o $(GAMEOBJECT_TEST_RUNNER)
+	./$(GAMEOBJECT_TEST_RUNNER)
+
 # Run all tests
-test-all: test-memory test-components
+test-all: test-memory test-components test-gameobject
 
 # Legacy test target for backward compatibility
 test: test-memory
@@ -80,6 +91,15 @@ test-factory:
 	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(COMPONENTS_TESTDIR)/test_component_factory.c -o test_factory
 	./test_factory
 
+# Individual GameObject test builds
+test-gameobject-core:
+	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(CORE_TESTDIR)/test_game_object.c $(CORE_TESTDIR)/mock_scene.c -o test_gameobject_core
+	./test_gameobject_core
+
+test-gameobject-perf:
+	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(CORE_TESTDIR)/test_gameobject_perf.c $(CORE_TESTDIR)/mock_scene.c -o test_gameobject_perf
+	./test_gameobject_perf
+
 # Individual memory test builds (legacy)
 test-pool:
 	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(MEMORY_SOURCES) $(CORE_TESTDIR)/test_memory_pool.c -o test_pool
@@ -95,10 +115,10 @@ test-debug:
 
 # Clean up
 clean:
-	rm -f $(ALL_OBJECTS) $(MEMORY_TEST_RUNNER) $(COMPONENT_TEST_RUNNER) test_*
+	rm -f $(ALL_OBJECTS) $(MEMORY_TEST_RUNNER) $(COMPONENT_TEST_RUNNER) $(GAMEOBJECT_TEST_RUNNER) test_*
 
 # Development shortcuts
 .PHONY: quick-test
 quick-test:
-	@echo "Running quick component system validation..."
-	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(COMPONENT_TEST_SOURCES) -o $(COMPONENT_TEST_RUNNER) && ./$(COMPONENT_TEST_RUNNER)
+	@echo "Running quick GameObject system validation..."
+	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(GAMEOBJECT_TEST_SOURCES) -o $(GAMEOBJECT_TEST_RUNNER) && ./$(GAMEOBJECT_TEST_RUNNER)

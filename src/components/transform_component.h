@@ -8,8 +8,10 @@ typedef struct TransformComponent {
     Component base;                // 48 bytes - base component
     float x, y;                   // 8 bytes - position
     float rotation;               // 4 bytes - rotation in radians
+    float scaleX, scaleY;         // 8 bytes - scale factors
+    float matrix[6];              // 24 bytes - cached 2D transformation matrix [a,b,c,d,tx,ty]
     bool matrixDirty;            // 1 byte - needs matrix recalculation
-    uint8_t padding[3];          // 3 bytes - alignment padding
+    uint8_t padding[7];          // 7 bytes - alignment padding to reach 64 bytes
 } TransformComponent;
 
 // Transform component interface
@@ -32,6 +34,7 @@ void transform_component_get_scale(const TransformComponent* transform, float* s
 
 // Matrix operations
 const float* transform_component_get_matrix(TransformComponent* transform);
+void transform_component_calculate_matrix(TransformComponent* transform);
 void transform_component_mark_dirty(TransformComponent* transform);
 
 // Utility functions
