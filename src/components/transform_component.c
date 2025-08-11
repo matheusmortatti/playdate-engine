@@ -232,3 +232,18 @@ void transform_component_transform_point(const TransformComponent* transform,
     *worldX = m[0] * localX + m[2] * localY + m[4];
     *worldY = m[1] * localX + m[3] * localY + m[5];
 }
+
+// Registration function
+ComponentResult transform_component_register(void) {
+    if (component_registry_is_type_registered(COMPONENT_TYPE_TRANSFORM)) {
+        return COMPONENT_OK; // Already registered
+    }
+    
+    return component_registry_register_type(
+        COMPONENT_TYPE_TRANSFORM,
+        sizeof(TransformComponent),
+        DEFAULT_COMPONENT_POOL_SIZE,
+        &transformVTable,
+        "Transform"
+    );
+}

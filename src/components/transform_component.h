@@ -15,6 +15,7 @@ typedef struct TransformComponent {
 } TransformComponent;
 
 // Transform component interface
+ComponentResult transform_component_register(void);
 TransformComponent* transform_component_create(GameObject* gameObject);
 void transform_component_destroy(TransformComponent* transform);
 

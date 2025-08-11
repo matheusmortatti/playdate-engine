@@ -21,22 +21,28 @@ COMPONENT_TEST_SOURCES = $(CORE_TESTDIR)/test_component.c $(CORE_TESTDIR)/test_c
 GAMEOBJECT_SOURCES = $(CORE_SRCDIR)/game_object.c
 GAMEOBJECT_TEST_SOURCES = $(CORE_TESTDIR)/test_game_object.c $(CORE_TESTDIR)/test_gameobject_perf.c $(CORE_TESTDIR)/mock_scene.c $(CORE_TESTDIR)/test_gameobject_runner.c
 
+# Phase 4: Scene management sources
+SCENE_SOURCES = $(CORE_SRCDIR)/scene.c $(CORE_SRCDIR)/update_systems.c $(CORE_SRCDIR)/scene_manager.c
+SCENE_TEST_SOURCES = $(CORE_TESTDIR)/test_scene.c $(CORE_TESTDIR)/test_scene_perf.c $(CORE_TESTDIR)/test_scene_runner.c
+
 # Combined sources
-ALL_SOURCES = $(MEMORY_SOURCES) $(COMPONENT_SOURCES) $(GAMEOBJECT_SOURCES)
-ALL_TEST_SOURCES = $(MEMORY_TEST_SOURCES) $(COMPONENT_TEST_SOURCES) $(GAMEOBJECT_TEST_SOURCES)
+ALL_SOURCES = $(MEMORY_SOURCES) $(COMPONENT_SOURCES) $(GAMEOBJECT_SOURCES) $(SCENE_SOURCES)
+ALL_TEST_SOURCES = $(MEMORY_TEST_SOURCES) $(COMPONENT_TEST_SOURCES) $(GAMEOBJECT_TEST_SOURCES) $(SCENE_TEST_SOURCES)
 
 # Object files
 MEMORY_OBJECTS = $(MEMORY_SOURCES:.c=.o)
 COMPONENT_OBJECTS = $(COMPONENT_SOURCES:.c=.o)
 GAMEOBJECT_OBJECTS = $(GAMEOBJECT_SOURCES:.c=.o)
+SCENE_OBJECTS = $(SCENE_SOURCES:.c=.o)
 ALL_OBJECTS = $(ALL_SOURCES:.c=.o)
 
 # Executables
 MEMORY_TEST_RUNNER = test_memory_system
 COMPONENT_TEST_RUNNER = test_component_system
 GAMEOBJECT_TEST_RUNNER = test_gameobject_system
+SCENE_TEST_RUNNER = test_scene_system
 
-.PHONY: all clean test test-verbose test-memory test-components test-gameobject test-all
+.PHONY: all clean test test-verbose test-memory test-components test-gameobject test-scene test-all
 
 # Default target - run all tests
 all: test-all
@@ -60,8 +66,13 @@ test-gameobject:
 	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(GAMEOBJECT_TEST_SOURCES) -o $(GAMEOBJECT_TEST_RUNNER)
 	./$(GAMEOBJECT_TEST_RUNNER)
 
+# Scene system tests (Phase 4)
+test-scene:
+	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(SCENE_TEST_SOURCES) -o $(SCENE_TEST_RUNNER)
+	./$(SCENE_TEST_RUNNER)
+
 # Run all tests
-test-all: test-memory test-components test-gameobject
+test-all: test-memory test-components test-gameobject test-scene
 
 # Legacy test target for backward compatibility
 test: test-memory
@@ -99,6 +110,15 @@ test-gameobject-core:
 test-gameobject-perf:
 	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(CORE_TESTDIR)/test_gameobject_perf.c $(CORE_TESTDIR)/mock_scene.c -o test_gameobject_perf
 	./test_gameobject_perf
+
+# Individual Scene test builds
+test-scene-core:
+	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(CORE_TESTDIR)/test_scene.c -o test_scene_core
+	./test_scene_core
+
+test-scene-perf:
+	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(CORE_TESTDIR)/test_scene_perf.c -o test_scene_perf
+	./test_scene_perf
 
 # Individual memory test builds (legacy)
 test-pool:
