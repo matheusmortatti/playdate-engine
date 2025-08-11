@@ -1,5 +1,6 @@
 #include "scene.h"
 #include "component_registry.h"
+#include "update_systems.h"
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -453,15 +454,30 @@ void scene_render(Scene* scene) {
 
 // Batch operations
 void scene_update_transforms(Scene* scene, float deltaTime) {
-    // TODO: Implement transform batch update
+    if (!scene) return;
+    
+    // Use the registered transform system for batch processing
+    if (scene->transformCount > 0) {
+        transform_system_update_batch(scene->transformComponents, scene->transformCount, deltaTime);
+    }
 }
 
 void scene_update_sprites(Scene* scene, float deltaTime) {
-    // TODO: Implement sprite batch update
+    if (!scene) return;
+    
+    // Use the registered sprite system for batch processing
+    if (scene->spriteCount > 0) {
+        sprite_system_update_batch(scene->spriteComponents, scene->spriteCount, deltaTime);
+    }
 }
 
 void scene_render_sprites(Scene* scene) {
-    // TODO: Implement sprite batch rendering
+    if (!scene) return;
+    
+    // Use the registered sprite system for batch rendering
+    if (scene->spriteCount > 0) {
+        sprite_system_render_batch(scene->spriteComponents, scene->spriteCount);
+    }
 }
 
 // Resource access
