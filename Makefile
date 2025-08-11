@@ -6,8 +6,10 @@ INCLUDES = -I.
 # Directory structure
 CORE_SRCDIR = src/core
 COMPONENTS_SRCDIR = src/components
+SYSTEMS_SRCDIR = src/systems
 CORE_TESTDIR = tests/core
 COMPONENTS_TESTDIR = tests/components
+SYSTEMS_TESTDIR = tests/systems
 
 # Phase 1: Memory management sources
 MEMORY_SOURCES = $(CORE_SRCDIR)/memory_pool.c $(CORE_SRCDIR)/memory_debug.c
@@ -25,15 +27,20 @@ GAMEOBJECT_TEST_SOURCES = $(CORE_TESTDIR)/test_game_object.c $(CORE_TESTDIR)/tes
 SCENE_SOURCES = $(CORE_SRCDIR)/scene.c $(CORE_SRCDIR)/update_systems.c $(CORE_SRCDIR)/scene_manager.c
 SCENE_TEST_SOURCES = $(CORE_TESTDIR)/test_scene.c $(CORE_TESTDIR)/test_scene_perf.c $(CORE_TESTDIR)/test_scene_runner.c
 
+# Phase 5: Spatial partitioning sources
+SPATIAL_SOURCES = $(SYSTEMS_SRCDIR)/spatial_grid.c
+SPATIAL_TEST_SOURCES = $(SYSTEMS_TESTDIR)/test_spatial_grid.c $(SYSTEMS_TESTDIR)/test_spatial_perf.c $(SYSTEMS_TESTDIR)/test_spatial_runner.c
+
 # Combined sources
-ALL_SOURCES = $(MEMORY_SOURCES) $(COMPONENT_SOURCES) $(GAMEOBJECT_SOURCES) $(SCENE_SOURCES)
-ALL_TEST_SOURCES = $(MEMORY_TEST_SOURCES) $(COMPONENT_TEST_SOURCES) $(GAMEOBJECT_TEST_SOURCES) $(SCENE_TEST_SOURCES)
+ALL_SOURCES = $(MEMORY_SOURCES) $(COMPONENT_SOURCES) $(GAMEOBJECT_SOURCES) $(SCENE_SOURCES) $(SPATIAL_SOURCES)
+ALL_TEST_SOURCES = $(MEMORY_TEST_SOURCES) $(COMPONENT_TEST_SOURCES) $(GAMEOBJECT_TEST_SOURCES) $(SCENE_TEST_SOURCES) $(SPATIAL_TEST_SOURCES)
 
 # Object files
 MEMORY_OBJECTS = $(MEMORY_SOURCES:.c=.o)
 COMPONENT_OBJECTS = $(COMPONENT_SOURCES:.c=.o)
 GAMEOBJECT_OBJECTS = $(GAMEOBJECT_SOURCES:.c=.o)
 SCENE_OBJECTS = $(SCENE_SOURCES:.c=.o)
+SPATIAL_OBJECTS = $(SPATIAL_SOURCES:.c=.o)
 ALL_OBJECTS = $(ALL_SOURCES:.c=.o)
 
 # Executables
@@ -41,8 +48,9 @@ MEMORY_TEST_RUNNER = test_memory_system
 COMPONENT_TEST_RUNNER = test_component_system
 GAMEOBJECT_TEST_RUNNER = test_gameobject_system
 SCENE_TEST_RUNNER = test_scene_system
+SPATIAL_TEST_RUNNER = test_spatial_system
 
-.PHONY: all clean test test-verbose test-memory test-components test-gameobject test-scene test-all
+.PHONY: all clean test test-verbose test-memory test-components test-gameobject test-scene test-spatial test-all
 
 # Default target - run all tests
 all: test-all
@@ -71,8 +79,13 @@ test-scene:
 	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(SCENE_TEST_SOURCES) -o $(SCENE_TEST_RUNNER)
 	./$(SCENE_TEST_RUNNER)
 
+# Spatial system tests (Phase 5)
+test-spatial:
+	$(CC) $(CFLAGS) $(INCLUDES) $(ALL_SOURCES) $(SPATIAL_TEST_SOURCES) -o $(SPATIAL_TEST_RUNNER)
+	./$(SPATIAL_TEST_RUNNER)
+
 # Run all tests
-test-all: test-memory test-components test-gameobject test-scene
+test-all: test-memory test-components test-gameobject test-scene test-spatial
 
 # Legacy test target for backward compatibility
 test: test-memory
@@ -119,6 +132,15 @@ test-scene-core:
 test-scene-perf:
 	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(CORE_TESTDIR)/test_scene_perf.c -o test_scene_perf
 	./test_scene_perf
+
+# Individual Spatial test builds
+test-spatial-core:
+	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(SYSTEMS_TESTDIR)/test_spatial_grid.c -o test_spatial_core
+	./test_spatial_core
+
+test-spatial-perf:
+	$(CC) $(CFLAGS) $(INCLUDES) -DTEST_STANDALONE $(ALL_SOURCES) $(SYSTEMS_TESTDIR)/test_spatial_perf.c -o test_spatial_perf
+	./test_spatial_perf
 
 # Individual memory test builds (legacy)
 test-pool:
